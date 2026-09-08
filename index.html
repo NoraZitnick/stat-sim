@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Maze Mouse Drug Study — AP Stats Simulation</title>
+  <link rel="stylesheet" href="css/styles.css" />
+  <!-- Chart.js: popular library for graphs; we use it for histograms -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <header>
+    <h1>Maze Mouse Drug Study</h1>
+    <p class="subtitle">
+      Watch mice run a maze and compare completion times across study designs.
+    </p>
+  </header>
+
+  <main class="layout">
+    <!-- Sidebar: settings and study design selection -->
+    <aside class="sidebar">
+      <section class="panel">
+        <h2>Settings</h2>
+
+        <label class="field">
+          <span>Sample size (number of mice)</span>
+          <input type="number" id="sample-size" min="4" max="1000" value="20" step="2" />
+        </label>
+
+        <label class="field toggle-field">
+          <span>New random maze each run</span>
+          <input type="checkbox" id="random-maze" checked />
+          <small>
+            When off, matched pairs reuse the same maze — the 2nd run is faster from
+            practice (learning), not from the drug. Good maze for comparing designs!
+          </small>
+        </label>
+
+        <fieldset class="field">
+          <legend>Assignment method</legend>
+
+          <label class="radio">
+            <input type="radio" name="assignment" value="random" checked />
+            <span>
+              <strong>Random assignment</strong>
+              <small>Drug vs. control assigned by chance. Confounding by litter can hide the effect.</small>
+            </span>
+          </label>
+
+          <label class="radio">
+            <input type="radio" name="assignment" value="block" />
+            <span>
+              <strong>Block assignment (by litter)</strong>
+              <small>Half of each litter gets the drug. Controls for litter differences.</small>
+            </span>
+          </label>
+
+          <label class="radio">
+            <input type="radio" name="assignment" value="matched" />
+            <span>
+              <strong>Matched pairs</strong>
+              <small>Each mouse runs twice (drug &amp; no drug). Strongest design for seeing an effect.</small>
+            </span>
+          </label>
+        </fieldset>
+
+        <div class="button-row">
+          <button id="run-btn" class="btn primary">Run simulation</button>
+          <button id="reset-btn" class="btn secondary">Reset</button>
+        </div>
+
+        <button id="fast-forward-btn" class="btn fast-forward" hidden>
+          Fast forward (skip animation)
+        </button>
+
+        <p id="status" class="status">Ready. Choose settings and click Run simulation.</p>
+      </section>
+
+      <section class="panel legend-panel">
+        <h2>Legend</h2>
+        <ul class="legend-list">
+          <li><span class="swatch collar-control"></span> Gray collar = control</li>
+          <li><span class="swatch collar-drug"></span> Green collar = drug</li>
+        </ul>
+        <ul class="legend-list litter-legend" id="litter-legend"></ul>
+      </section>
+    </aside>
+
+    <!-- Center: maze visualization -->
+    <section class="maze-section">
+      <div class="maze-header">
+        <h2 id="maze-title">Maze run</h2>
+        <p id="run-info" class="run-info">—</p>
+      </div>
+      <canvas id="maze-canvas" width="520" height="520"></canvas>
+    </section>
+
+    <!-- Right: histograms -->
+    <section class="charts-section">
+      <h2>Completion times (seconds)</h2>
+      <p id="chart-caption" class="chart-caption">
+        Histograms update as each mouse finishes.
+      </p>
+      <div class="charts-grid" id="charts-grid"></div>
+      <p id="summary" class="summary"></p>
+    </section>
+  </main>
+
+  <footer>
+    <p>
+      AP Statistics simulation — compare how <em>random assignment</em>,
+      <em>blocking by litter</em>, and <em>matched pairs</em> change what you can conclude.
+    </p>
+  </footer>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
