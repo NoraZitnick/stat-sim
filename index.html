@@ -24,7 +24,8 @@
 
         <label class="field">
           <span>Sample size (number of mice)</span>
-          <input type="number" id="sample-size" min="4" max="1000" value="20" step="2" />
+          <input type="number" id="sample-size" min="4" max="300" value="20" step="2" />
+          <small>Large samples animate slowly — use Fast forward to jump straight to the results.</small>
         </label>
 
         <label class="field toggle-field">
@@ -69,7 +70,7 @@
           <button id="reset-btn" class="btn secondary">Reset</button>
         </div>
 
-        <button id="fast-forward-btn" class="btn fast-forward" hidden>
+        <button id="fast-forward-btn" class="btn fast-forward" disabled>
           Fast forward (skip animation)
         </button>
 
@@ -103,6 +104,7 @@
       </p>
       <div class="charts-grid" id="charts-grid"></div>
       <p id="summary" class="summary"></p>
+      <p id="pvalue" class="pvalue"></p>
     </section>
   </main>
 

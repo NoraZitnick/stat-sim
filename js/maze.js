@@ -1,5 +1,12 @@
 /**
- * maze.js — Maze generation, smart exploration, mouse drawing
+ * maze.js — Maze generation, "smart wandering" exploration, and drawing.
+ *
+ * Nothing in this file affects the statistics. It only decides what path a
+ * mouse's sprite walks and how long that walk visually takes (which is set
+ * to match the completion time computed in study.js). You could delete the
+ * whole animation and the experiment's conclusions wouldn't change — that
+ * separation is intentional, and it's what keeps the math in study.js easy
+ * to reason about.
  */
 
 import { CONFIG } from "./config.js";
@@ -23,6 +30,7 @@ const DIRECTIONS = [
   { dx: -1, dy: 0, wall: "w", opposite: "e" },
 ];
 
+/** Randomized depth-first search — the standard "perfect maze" algorithm (exactly one path between any two cells). */
 export function generateMaze(cols, rows) {
   const grid = createEmptyGrid(cols, rows);
   const stack = [];
@@ -70,7 +78,7 @@ function getOpenNeighbors(grid, x, y) {
   return moves;
 }
 
-/** Shortest path (BFS) — used as reference length, not for mouse movement */
+/** Shortest path (BFS) — used as a reference length, and as the guaranteed-fast fallback below. */
 export function findShortestPath(grid, start, end) {
   const rows = grid.length;
   const cols = grid[0].length;
@@ -102,22 +110,33 @@ export function findShortestPath(grid, start, end) {
 
 /**
  * Pick next cell: prefer unvisited, bias toward goal, random tie-break.
- * Marks dead-end branches so mice don't re-enter explored territory.
+ * Never choose a branch that has already been proven dead, and never reverse
+ * immediately when another legal direction still exists.
  */
-function pickNextCell(grid, cx, cy, end, visited, blocked) {
+function pickNextCell(grid, cx, cy, end, visited, blocked, previous = null) {
   const key = (x, y) => `${x},${y}`;
-  const neighbors = getOpenNeighbors(grid, cx, cy);
-  const options = neighbors.filter((n) => !blocked.has(key(n.x, n.y)));
-  const unvisited = options.filter((n) => !visited.has(key(n.x, n.y)));
+  const edgeKey = (ax, ay, bx, by) => `${key(ax, ay)}->${key(bx, by)}`;
 
-  const pool = unvisited.length > 0 ? unvisited : options;
+  const candidates = getOpenNeighbors(grid, cx, cy).filter((n) => {
+    const dirKey = edgeKey(cx, cy, n.x, n.y);
+    const reverseKey = edgeKey(n.x, n.y, cx, cy);
+    if (blocked.has(dirKey) || blocked.has(reverseKey)) return false;
+    if (previous && n.x === previous.x && n.y === previous.y) return false;
+    return true;
+  });
+
+  const nonReverse = candidates.filter((n) => !(previous && n.x === previous.x && n.y === previous.y));
+  const pool = nonReverse.length > 0 ? nonReverse : candidates;
   if (pool.length === 0) return null;
 
-  const scored = pool.map((n) => {
+  const unvisited = pool.filter((n) => !visited.has(key(n.x, n.y)));
+  const choices = unvisited.length > 0 ? unvisited : pool;
+
+  const scored = choices.map((n) => {
     const dist = Math.abs(n.x - end.x) + Math.abs(n.y - end.y);
     const goalBias = 1 / (dist + 1);
-    const novelty = visited.has(key(n.x, n.y)) ? 0.15 : 1;
-    return { n, score: goalBias * novelty + Math.random() * 0.6 };
+    const novelty = visited.has(key(n.x, n.y)) ? 0.25 : 1;
+    return { n, score: goalBias * novelty + Math.random() * 0.7 };
   });
 
   scored.sort((a, b) => b.score - a.score);
@@ -127,6 +146,11 @@ function pickNextCell(grid, cx, cy, end, visited, blocked) {
 /**
  * Explore maze: random turns at junctions, backtrack at dead ends,
  * never re-enter blocked branches. With knownCells, mouse takes a direct route (learned maze).
+ *
+ * `CONFIG.maxExploreSteps` is a safety cap, not a tuning knob for realism —
+ * if wandering ever ran away for one mouse, it would freeze the browser tab
+ * for everyone. If the cap is ever hit, we just fall back to the guaranteed
+ * BFS shortest path below, so lowering the cap only ever makes this safer.
  */
 export function exploreMazePath(grid, start, end, knownCells = null) {
   if (knownCells && knownCells.size > 8) {
@@ -134,57 +158,55 @@ export function exploreMazePath(grid, start, end, knownCells = null) {
   }
 
   const key = (x, y) => `${x},${y}`;
+  const edgeKey = (ax, ay, bx, by) => `${key(ax, ay)}->${key(bx, by)}`;
   const trail = [{ x: start.x, y: start.y }];
   let cx = start.x;
   let cy = start.y;
 
   const visited = new Set([key(start.x, start.y)]);
-
   const blocked = new Set();
-  const stack = [{ x: cx, y: cy, tried: new Set() }];
+  const stack = [{ x: cx, y: cy }];
 
   let steps = 0;
+  let previous = null;
+
   while ((cx !== end.x || cy !== end.y) && steps < CONFIG.maxExploreSteps) {
     steps++;
-    const next = pickNextCell(grid, cx, cy, end, visited, blocked);
+    const next = pickNextCell(grid, cx, cy, end, visited, blocked, previous);
 
     if (next) {
+      const prev = { x: cx, y: cy };
       cx = next.x;
       cy = next.y;
       if (!visited.has(key(cx, cy))) visited.add(key(cx, cy));
-      stack.push({ x: cx, y: cy, tried: new Set() });
+      stack.push({ x: cx, y: cy });
       trail.push({ x: cx, y: cy });
-    } else {
-      const dead = stack.pop();
-      if (!dead || stack.length === 0) break;
-
-      const from = stack[stack.length - 1];
-      blocked.add(`${dead.x},${dead.y}->${from.x},${from.y}`);
-      blocked.add(`${from.x},${from.y}->${dead.x},${dead.y}`);
-
-      if (cx !== from.x || cy !== from.y) {
-        cx = from.x;
-        cy = from.y;
-        trail.push({ x: cx, y: cy });
-      }
+      previous = prev;
+      continue;
     }
+
+    const current = stack[stack.length - 1];
+    const parent = stack[stack.length - 2];
+    if (!parent) break;
+
+    blocked.add(edgeKey(current.x, current.y, parent.x, parent.y));
+    blocked.add(edgeKey(parent.x, parent.y, current.x, current.y));
+
+    previous = { x: current.x, y: current.y };
+    stack.pop();
+    cx = parent.x;
+    cy = parent.y;
+    trail.push({ x: cx, y: cy });
+  }
+
+  if (cx !== end.x || cy !== end.y) {
+    return findShortestPath(grid, start, end);
   }
 
   return trail;
 }
 
-/** Fast estimate of walk length without simulating every step */
-export function estimatePathLength(shortestLength, isRepeatMaze) {
-  const efficiency = isRepeatMaze
-    ? 1.05 + Math.abs(randomEfficiency(0.08))
-    : 1.15 + Math.abs(randomEfficiency(0.12));
-  return Math.max(shortestLength, Math.round(shortestLength * efficiency));
-}
-
-function randomEfficiency(scale) {
-  return (Math.random() + Math.random()) * scale;
-}
-
+/** Converts a cell-coordinate path into pixel positions once, so the animation loop never has to redo this per frame. */
 export function pathToPixels(path, cellSize, padding) {
   return path.map(({ x, y }) => ({
     px: padding + x * cellSize + cellSize / 2,
@@ -192,8 +214,8 @@ export function pathToPixels(path, cellSize, padding) {
   }));
 }
 
-export function getPathPosition(path, progress, cellSize, padding) {
-  const pixels = pathToPixels(path, cellSize, padding);
+/** Interpolated pixel position and facing angle at a given point along a precomputed pixel path. */
+export function getPathPosition(pixels, progress) {
   const maxIdx = pixels.length - 1;
   const idx = Math.min(progress, maxIdx);
   const i = Math.floor(idx);
@@ -206,8 +228,9 @@ export function getPathPosition(path, progress, cellSize, padding) {
   return { px, py, angle };
 }
 
-export function drawMaze(ctx, grid, options = {}) {
-  const { cellSize = 32, padding = 8, mice = [] } = options;
+/** Draws only the parts of the maze that never change during an animation: background, start/end tiles, walls. */
+export function drawMazeBackground(ctx, grid, options = {}) {
+  const { cellSize = 32, padding = 8 } = options;
   const cols = grid[0].length;
   const rows = grid.length;
   const width = padding * 2 + cols * cellSize;
@@ -243,8 +266,12 @@ export function drawMaze(ctx, grid, options = {}) {
       ctx.stroke();
     }
   }
+}
 
-  for (const mouse of mice) {
+/** Full maze draw: background + every mouse sprite. Fine for one-off draws; the animation loop below avoids re-running the background half of this every frame. */
+export function drawMaze(ctx, grid, options = {}) {
+  drawMazeBackground(ctx, grid, options);
+  for (const mouse of options.mice ?? []) {
     drawMouseSprite(ctx, mouse);
   }
 }
@@ -300,24 +327,58 @@ export function drawMouseSprite(ctx, { px, py, angle, fur, hasDrug, finished }) 
   ctx.restore();
 }
 
+/**
+ * Animates every runner's mouse sprite along its path at a speed matched to
+ * its completion time, calling `onRunnerFinish` with the batch of mice that
+ * crossed the finish line on each frame (usually zero or one, but can be
+ * many at once with a large shared-maze sample).
+ *
+ * Two things here specifically target low-power laptops (Chromebooks):
+ *   1. Each mouse's path is converted to pixel coordinates ONCE, up front,
+ *      instead of being recomputed on every single animation frame — with
+ *      dozens of mice on screen at 60fps that recomputation was the actual
+ *      bottleneck.
+ *   2. The maze's walls are drawn to an offscreen canvas ONCE and then
+ *      copied into place each frame with a single fast image blit, instead
+ *      of redrawing ~900 individual wall-line segments every frame.
+ */
 export function animateMazeRuns(canvas, grid, runners, options = {}) {
   const cellSize = options.cellSize ?? 32;
   const padding = options.padding ?? 8;
-  const animTimeScale = options.animTimeScale ?? 0.09;
+  const animTimeScale = options.animTimeScale ?? 1;
   const shouldSkip = options.shouldSkip ?? (() => false);
+  const isCancelled = options.isCancelled ?? (() => false);
+  const onRunnerFinish = options.onRunnerFinish ?? (() => {});
   const ctx = canvas.getContext("2d");
 
-  const states = runners.map((r) => ({ ...r, progress: 0, finished: false }));
+  const states = runners.map((r) => ({
+    ...r,
+    progress: 0,
+    finished: false,
+    pixels: pathToPixels(r.path, cellSize, padding),
+  }));
+
+  const background = document.createElement("canvas");
+  background.width = canvas.width;
+  background.height = canvas.height;
+  drawMazeBackground(background.getContext("2d"), grid, { cellSize, padding });
 
   return new Promise((resolve) => {
     let lastTime = null;
 
     function finishAll() {
-      states.forEach((s) => (s.finished = true));
+      const newlyFinished = states.filter((s) => !s.finished);
+      newlyFinished.forEach((s) => (s.finished = true));
+      if (newlyFinished.length > 0) onRunnerFinish(newlyFinished);
       resolve(states.map((s) => s.completionTime));
     }
 
     function frame(timestamp) {
+      if (isCancelled()) {
+        resolve(null);
+        return;
+      }
+
       if (shouldSkip()) {
         finishAll();
         return;
@@ -327,22 +388,27 @@ export function animateMazeRuns(canvas, grid, runners, options = {}) {
       const dt = (timestamp - lastTime) / 1000;
       lastTime = timestamp;
 
+      const justFinished = [];
       for (const s of states) {
         if (s.finished) continue;
-        const animDuration = Math.max(1, s.completionTime * animTimeScale);
-        const speed = Math.max(1, (s.path.length - 1) / animDuration);
+        const pathSteps = Math.max(1, s.pixels.length - 1);
+        const animDuration = Math.max(0.25, s.completionTime * animTimeScale);
+        const speed = pathSteps / animDuration;
         s.progress += speed * dt;
-        if (s.progress >= s.path.length - 1) s.finished = true;
+        if (s.progress >= pathSteps) {
+          s.finished = true;
+          justFinished.push(s);
+        }
       }
 
-      const mice = states
-        .filter((s) => s.progress > 0 && !s.finished)
-        .map((s) => {
-          const pos = getPathPosition(s.path, s.progress, cellSize, padding);
-          return { px: pos.px, py: pos.py, angle: pos.angle, fur: s.fur, hasDrug: s.hasDrug, finished: false };
-        });
+      ctx.drawImage(background, 0, 0);
+      for (const s of states) {
+        if (s.progress <= 0 || s.finished) continue;
+        const pos = getPathPosition(s.pixels, s.progress);
+        drawMouseSprite(ctx, { px: pos.px, py: pos.py, angle: pos.angle, fur: s.fur, hasDrug: s.hasDrug, finished: false });
+      }
 
-      drawMaze(ctx, grid, { cellSize, padding, mice });
+      if (justFinished.length > 0) onRunnerFinish(justFinished);
 
       if (states.every((s) => s.finished)) {
         resolve(states.map((s) => s.completionTime));

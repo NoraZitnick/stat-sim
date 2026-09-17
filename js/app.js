@@ -5,7 +5,6 @@
 import { CONFIG, LITTER_FUR, round1 } from "./config.js";
 import {
   exploreMazePath,
-  estimatePathLength,
   fitCanvas,
   drawMaze,
   animateMazeRuns,
@@ -18,6 +17,7 @@ import {
   getMazeKey,
   groupRunBatches,
   summarizeResults,
+  describeSignificance,
   getChartLabels,
   usesBlockCharts,
   usesMatchedDifference,
@@ -35,11 +35,13 @@ const mazeTitle = document.getElementById("maze-title");
 const runInfo = document.getElementById("run-info");
 const chartCaption = document.getElementById("chart-caption");
 const summaryEl = document.getElementById("summary");
+const pvalueEl = document.getElementById("pvalue");
 const chartsGrid = document.getElementById("charts-grid");
 
 let histograms = createChartManager("random", chartsGrid);
 let isRunning = false;
 let fastForwardRequested = false;
+let cancelRequested = false;
 let finishedRecords = [];
 let mazeMemory = new Set();
 /** Tracks control & drug times per mouse for matched pairs */
@@ -109,8 +111,7 @@ function randomMazeEachRun() {
 }
 
 function updateFastForwardButton() {
-  fastForwardBtn.hidden = !randomMazeEachRun();
-  fastForwardBtn.disabled = !isRunning || !randomMazeEachRun();
+  fastForwardBtn.disabled = !isRunning;
 }
 
 function setControlsEnabled(enabled) {
@@ -137,6 +138,11 @@ function setupCharts(assignmentType, newMazeEachRun) {
   chartCaption.textContent = getChartLabels(assignmentType, newMazeEachRun).caption;
 }
 
+function refreshSummary(assignmentType, newMazeEachRun) {
+  summaryEl.textContent = summarizeResults(finishedRecords, assignmentType, newMazeEachRun);
+  pvalueEl.textContent = describeSignificance(finishedRecords, assignmentType);
+}
+
 function getMazeFromCache(run, assignmentType, cache) {
   const key = getMazeKey(run, assignmentType, randomMazeEachRun());
   if (!cache.has(key)) {
@@ -159,52 +165,45 @@ function rememberPath(path) {
 }
 
 function prepareRunner(run, mazeBundle, assignmentType, newMazeEachRun, fastMode) {
-  const { grid, start, end, shortestLength } = mazeBundle;
+  const { grid, start, end } = mazeBundle;
 
   const isRepeatMaze =
     !newMazeEachRun && assignmentType === "matched" && run.phase === 2;
 
   const knownCells = isRepeatMaze ? mazeMemory : null;
 
-  let path;
-  let pathHint;
+  // Fast-forward mode skips the wandering search and takes the shortest
+  // path instead — nobody watches the animation during fast-forward, so
+  // nothing is lost, and it avoids running the (slower) search for every
+  // single mouse when simulating a large sample.
+  const path = fastMode
+    ? mazeBundle.shortestPath
+    : exploreMazePath(grid, start, end, knownCells);
 
-  if (fastMode) {
-    pathHint = estimatePathLength(shortestLength, isRepeatMaze);
-    path = isRepeatMaze ? mazeBundle.shortestPath : mazeBundle.shortestPath;
-  } else {
-    path = exploreMazePath(grid, start, end, knownCells);
-    pathHint = path.length;
-  }
+  const metrics = computeRunMetrics(run.mouse, {
+    hasDrug: run.hasDrug,
+    isRepeatMaze,
+    assignmentType,
+    newMazeEachRun,
+  });
 
-  const metrics = computeRunMetrics(
-    run.mouse,
-    { hasDrug: run.hasDrug, isRepeatMaze, assignmentType },
-    pathHint
-  );
+  // Displayed speed is derived FROM the path and the time, after the fact —
+  // it's just cells-per-second, not a separate random number. That keeps it
+  // honest: a mouse that finishes faster will always show a higher speed,
+  // because that's literally how it's computed.
+  const speed = round1(path.length / metrics.completionTime);
 
   return {
     run,
-    path: path ?? mazeBundle.shortestPath,
+    path,
     completionTime: metrics.completionTime,
+    speed,
     fur: run.fur,
     hasDrug: run.hasDrug,
-    metrics,
     isRepeatMaze,
     cellSize: mazeBundle.cellSize,
     padding: mazeBundle.padding,
   };
-}
-
-function recordResults(runners, times, assignmentType) {
-  const batch = runners.map((runner, i) => ({
-    group: runner.run.group,
-    time: times[i],
-    litter: runner.run.mouse.litter,
-    mouseId: runner.run.mouse.id,
-  }));
-
-  ingestRunRecords(batch, assignmentType);
 }
 
 /** Fast bulk simulation — no pathfinding animation, batched chart updates */
@@ -214,6 +213,7 @@ async function bulkSimulateRuns(runs, assignmentType, newMazeEachRun, mazeCache)
   let phase1MemoryFilled = mazeMemory.size > 0;
 
   for (let i = 0; i < runs.length; i++) {
+    if (cancelRequested) return;
     const run = runs[i];
 
     if (
@@ -241,7 +241,7 @@ async function bulkSimulateRuns(runs, assignmentType, newMazeEachRun, mazeCache)
       pending = [];
 
       statusEl.textContent = `Fast-forward: ${i + 1} / ${runs.length} runs simulated…`;
-      summaryEl.textContent = summarizeResults(finishedRecords, assignmentType, newMazeEachRun);
+      refreshSummary(assignmentType, newMazeEachRun);
       await new Promise((r) => requestAnimationFrame(r));
     }
   }
@@ -251,6 +251,7 @@ async function runSimulation() {
   if (isRunning) return;
   isRunning = true;
   fastForwardRequested = false;
+  cancelRequested = false;
   setControlsEnabled(false);
   finishedRecords = [];
   mazeMemory = new Set();
@@ -263,6 +264,7 @@ async function runSimulation() {
   setupCharts(assignmentType, newMazeEachRun);
   histograms.reset();
   summaryEl.textContent = "";
+  pvalueEl.textContent = "";
 
   const mice = createMice(sampleSize);
   const runs = buildExperiment(mice, assignmentType);
@@ -274,10 +276,14 @@ async function runSimulation() {
 
   const batches = groupRunBatches(runs, assignmentType, newMazeEachRun);
 
+  batchLoop:
   for (const batch of batches) {
+    if (cancelRequested) break;
+
     if (fastForwardRequested) {
       const remaining = runs.slice(completedRuns);
       await bulkSimulateRuns(remaining, assignmentType, newMazeEachRun, mazeCache);
+      if (cancelRequested) break;
       completedRuns = totalRuns;
       break;
     }
@@ -303,7 +309,7 @@ async function runSimulation() {
       const run = r.run;
       runInfo.textContent =
         `Mouse #${run.mouse.id} · ${run.fur.name} litter · ` +
-        `${run.hasDrug ? "Drug" : "Control"} · ${r.path.length} steps · Speed ${r.metrics.speed}`;
+        `${run.hasDrug ? "Drug" : "Control"} · ${r.path.length} steps · Speed ${r.speed}`;
     }
 
     statusEl.textContent = `Running ${completedRuns + 1}–${completedRuns + batch.length} / ${totalRuns}…`;
@@ -313,6 +319,8 @@ async function runSimulation() {
       padding: mazeBundle.padding,
     });
 
+    let finishedInBatch = 0;
+
     const times = await animateMazeRuns(
       mazeCanvas,
       grid,
@@ -321,29 +329,59 @@ async function runSimulation() {
         completionTime: r.completionTime,
         fur: r.fur,
         hasDrug: r.hasDrug,
+        group: r.run.group,
+        litter: r.run.mouse.litter,
+        mouseId: r.run.mouse.id,
       })),
       {
         cellSize: mazeBundle.cellSize,
         padding: mazeBundle.padding,
-        animTimeScale: isMulti ? CONFIG.animTimeScale * 0.6 : CONFIG.animTimeScale,
+        animTimeScale: CONFIG.animTimeScale,
         shouldSkip: () => fastForwardRequested,
+        isCancelled: () => cancelRequested,
+        // finishedStates can hold more than one mouse when several cross the
+        // finish line on the same animation frame (common with a large,
+        // shared-maze sample) — batching them into one ingest + one chart
+        // refresh, instead of one each, avoids re-rendering the histograms
+        // dozens of times per frame.
+        onRunnerFinish: (finishedStates) => {
+          finishedInBatch += finishedStates.length;
+          ingestRunRecords(
+            finishedStates.map((s) => ({
+              group: s.group,
+              time: s.completionTime,
+              litter: s.litter,
+              mouseId: s.mouseId,
+            })),
+            assignmentType
+          );
+          if (isMulti) {
+            statusEl.textContent =
+              `Running batch ${completedRuns + finishedInBatch}/${totalRuns} · ` +
+              `${finishedInBatch}/${batch.length} mice finished this maze…`;
+          }
+          refreshSummary(assignmentType, newMazeEachRun);
+        },
       }
     );
 
-    recordResults(runners, times, assignmentType);
+    if (times === null || cancelRequested) {
+      break batchLoop;
+    }
 
     if (assignmentType === "matched" && batch[0].phase === 1 && !newMazeEachRun) {
       for (const r of runners) rememberPath(r.path);
     }
 
     completedRuns += batch.length;
-    summaryEl.textContent = summarizeResults(finishedRecords, assignmentType, newMazeEachRun);
+    refreshSummary(assignmentType, newMazeEachRun);
 
     if (fastForwardRequested) {
       const remaining = runs.slice(completedRuns);
       if (remaining.length > 0) {
         await bulkSimulateRuns(remaining, assignmentType, newMazeEachRun, mazeCache);
       }
+      if (cancelRequested) break;
       completedRuns = totalRuns;
       break;
     }
@@ -353,20 +391,26 @@ async function runSimulation() {
     }
   }
 
-  statusEl.textContent = `Done! ${totalRuns} runs completed.`;
   isRunning = false;
   fastForwardRequested = false;
   setControlsEnabled(true);
+
+  if (cancelRequested) {
+    cancelRequested = false;
+    resetAll();
+    return;
+  }
+
+  statusEl.textContent = `Done! ${totalRuns} runs completed.`;
 }
 
 function resetAll() {
-  if (isRunning) return;
-
   finishedRecords = [];
   mazeMemory = new Set();
   resetPairTracker();
   histograms.reset();
   summaryEl.textContent = "";
+  pvalueEl.textContent = "";
   statusEl.textContent = "Ready. Choose settings and click Run simulation.";
   runInfo.textContent = "—";
 
@@ -388,11 +432,19 @@ runBtn.addEventListener("click", () => {
     statusEl.textContent = "Something went wrong. Check the console.";
     isRunning = false;
     fastForwardRequested = false;
+    cancelRequested = false;
     setControlsEnabled(true);
   });
 });
 
-resetBtn.addEventListener("click", resetAll);
+resetBtn.addEventListener("click", () => {
+  if (isRunning) {
+    cancelRequested = true;
+    statusEl.textContent = "Cancelling…";
+    return;
+  }
+  resetAll();
+});
 
 fastForwardBtn.addEventListener("click", () => {
   if (!isRunning) return;

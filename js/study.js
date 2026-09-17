@@ -1,61 +1,47 @@
 /**
- * study.js — Mice, assignments, Gaussian completion times
+ * study.js — Mice, group assignment, and the completion-time model.
+ *
+ * This file answers two separate questions:
+ *   1. createMice / buildExperiment — WHO runs the maze, and which group
+ *      (drug or control) each run belongs to. This is the "experimental
+ *      design" part — it's where random / block / matched pairs differ.
+ *   2. computeRunMetrics — HOW LONG that run takes. Every run's time is one
+ *      random draw from a bell curve, nudged by whichever real effects and
+ *      confounds apply (drug, litter, practice). The maze itself is just
+ *      for show — pathfinding does not feed back into this number, so the
+ *      statistics stay easy to reason about.
  */
 
-import {
-  CONFIG,
-  LITTER_FUR,
-  GROUP_RING,
-  randomNormal,
-  shuffle,
-  round1,
-  mean,
-} from "./config.js";
-
-function createLitterSpeedMeans() {
-  const means = [];
-  for (let i = 0; i < CONFIG.numLitters; i++) {
-    means.push(CONFIG.baseSpeed + randomNormal(0, CONFIG.litterSpeedSpread));
-  }
-  return means;
-}
+import { CONFIG, LITTER_FUR, GROUP_RING, randomNormal, shuffle, round1, mean } from "./config.js";
+import { welchTTest, pairedTTest } from "./inference.js";
 
 export function createMice(sampleSize) {
-  const litterSpeedMeans = createLitterSpeedMeans();
   const mice = [];
-
   for (let i = 0; i < sampleSize; i++) {
     const litter = i % CONFIG.numLitters;
-    const baseSpeed =
-      litterSpeedMeans[litter] + randomNormal(0, CONFIG.individualSpeedSpread);
-
-    mice.push({
-      id: i + 1,
-      litter,
-      baseSpeed: Math.max(1.5, baseSpeed),
-      fur: LITTER_FUR[litter],
-    });
+    mice.push({ id: i + 1, litter, fur: LITTER_FUR[litter] });
   }
   return mice;
 }
 
 /**
- * Gaussian completion time — bell-curve results.
- * Speed/path only add a tiny adjustment; same model for all assignment types.
+ * Draws this run's completion time from a normal distribution, then applies
+ * whichever real effects and confounds apply to this particular run:
+ *   - litter shift    → a confound (see CONFIG.litterTimeShift)
+ *   - drug effect     → the true effect the study is trying to detect
+ *   - practice effect → a confound specific to matched pairs on a reused maze
+ * `opts.assignmentType` and `opts.newMazeEachRun` only affect how much NOISE
+ * is added (spread), not the mean — that's what makes some designs more
+ * reliable than others at revealing the same true drug effect.
  */
-export function computeRunMetrics(mouse, opts, pathLengthHint = null) {
-  const { hasDrug, isRepeatMaze, assignmentType } = opts;
-
-  let speed = mouse.baseSpeed;
-  if (hasDrug) speed *= CONFIG.drugSpeedMultiplier + randomNormal(0, CONFIG.drugSpeedNoise);
-  if (isRepeatMaze) speed *= CONFIG.learningMultiplier + randomNormal(0, CONFIG.learningNoise);
-  speed *= 1 + randomNormal(0, CONFIG.runSpeedNoise);
-  speed = Math.max(0.8, speed);
+export function computeRunMetrics(mouse, opts) {
+  const { hasDrug, isRepeatMaze, assignmentType, newMazeEachRun } = opts;
 
   const litterShift = CONFIG.litterTimeShift[mouse.litter] ?? 0;
-  const spread = CONFIG.timeStdDev + CONFIG.designTimeSpread[assignmentType];
+  const mazeSpread = newMazeEachRun ? CONFIG.newMazeSpread : 0;
+  const spread = CONFIG.timeStdDev + CONFIG.designTimeSpread[assignmentType] + mazeSpread;
 
-  let time = CONFIG.timeMean + randomNormal(0, spread) + litterShift;
+  let time = randomNormal(CONFIG.timeMean, spread) + litterShift;
 
   if (hasDrug) {
     time -= CONFIG.drugTimeReduction + randomNormal(0, CONFIG.drugTimeNoise);
@@ -65,14 +51,9 @@ export function computeRunMetrics(mouse, opts, pathLengthHint = null) {
     time -= CONFIG.learningTimeReduction + randomNormal(0, CONFIG.learningTimeNoise);
   }
 
-  if (pathLengthHint != null) {
-    time += randomNormal(0, 0.35) * Math.max(0, pathLengthHint - 50) * 0.02;
-  }
+  time = Math.min(CONFIG.timeCeiling, Math.max(CONFIG.timeFloor, time));
 
-  return {
-    speed: round1(speed),
-    completionTime: round1(Math.max(10, time)),
-  };
+  return { completionTime: round1(time) };
 }
 
 export function buildExperiment(mice, assignmentType) {
@@ -89,6 +70,12 @@ export function drugGroupCount(total) {
   return Math.round(total / 2);
 }
 
+/**
+ * Random assignment: shuffle everyone, then the first half get the drug.
+ * Because litter isn't accounted for, a shuffle can (by chance) put more
+ * of one litter in one group than the other — that's the confounding this
+ * design is vulnerable to.
+ */
 function buildRandomAssignment(mice) {
   const shuffled = shuffle([...mice]);
   const nDrug = drugGroupCount(shuffled.length);
@@ -104,6 +91,12 @@ function buildRandomAssignment(mice) {
   );
 }
 
+/**
+ * Block assignment: shuffle and split each litter separately, so every
+ * litter is represented equally in both groups. This is what "blocking"
+ * means — the confounding variable (litter) can no longer pile up
+ * unevenly in one group, whatever else happens.
+ */
 function buildBlockAssignment(mice) {
   const runs = [];
   for (let litter = 0; litter < CONFIG.numLitters; litter++) {
@@ -124,6 +117,12 @@ function buildBlockAssignment(mice) {
   return shuffle(runs);
 }
 
+/**
+ * Matched pairs: every mouse runs TWICE, once with the drug and once
+ * without — so each mouse acts as its own control. Whether a given mouse
+ * gets the drug first or second is randomized, so any practice/order
+ * effect (see learningTimeReduction) isn't stacked onto one group.
+ */
 function buildMatchedPairs(mice) {
   const shuffled = shuffle([...mice]);
   const half = Math.floor(shuffled.length / 2);
@@ -216,16 +215,50 @@ export function summarizeResults(records, assignmentType, randomMazeEachRun) {
   const diff = round1(controlMean - drugMean);
 
   const messages = {
-    random:
-      `Control mean: ${controlMean}s · Drug mean: ${drugMean}s · Difference: ${diff}s. ` +
-      "Stacked bars: drug (green, bottom), control (gray, top). " +
-      "Random assignment can let litter differences confound the drug effect.",
+    random: `Control mean: ${controlMean}s · Drug mean: ${drugMean}s · Difference: ${diff}s.`,
     block:
       `Control mean: ${controlMean}s · Drug mean: ${drugMean}s · Difference: ${diff}s. ` +
-      "Each litter chart stacks drug (bottom) and control (top) for easy comparison.",
+      "Top row: drug, one chart per litter. Bottom row: control, same litters.",
   };
 
   return messages[assignmentType] ?? "";
+}
+
+function formatPValue(p) {
+  const clamped = Math.max(0, Math.min(1, p));
+  const pText = clamped < 0.001 ? "< 0.001" : String(Math.round(clamped * 1000) / 1000);
+  const pctText = clamped < 0.001 ? "< 0.1" : `${Math.round(clamped * 1000) / 10}`;
+  const verdict =
+    clamped < 0.05
+      ? "below the usual 0.05 cutoff — likely a real effect"
+      : "above the usual 0.05 cutoff — easily explained by chance";
+
+  return (
+    `P = ${pText} — if the drug truly had no effect, a difference at least this large ` +
+    `would happen by random chance about ${pctText}% of the time (${verdict}).`
+  );
+}
+
+/**
+ * How likely the observed difference is under pure chance (no real drug effect):
+ * a Welch two-sample t-test for random/block, a paired t-test for matched pairs.
+ */
+export function describeSignificance(records, assignmentType) {
+  if (assignmentType === "matched") {
+    const diffs = records.filter((r) => r.type === "difference").map((r) => r.time);
+    if (diffs.length < 2) return "P = — (need at least 2 pairs to compute)";
+    const result = pairedTTest(diffs);
+    return result ? formatPValue(result.p) : "";
+  }
+
+  const controlTimes = records.filter((r) => r.group === "control").map((r) => r.time);
+  const drugTimes = records.filter((r) => r.group === "drug").map((r) => r.time);
+  if (controlTimes.length < 2 || drugTimes.length < 2) {
+    return "P = — (need at least 2 mice per group to compute)";
+  }
+
+  const result = welchTTest(drugTimes, controlTimes);
+  return result ? formatPValue(result.p) : "";
 }
 
 export function getChartLabels(assignmentType, randomMazeEachRun) {
@@ -233,7 +266,8 @@ export function getChartLabels(assignmentType, randomMazeEachRun) {
     return {
       mode: "block",
       caption:
-        "One chart per litter. Green (bottom) = drug, gray (top) = control, stacked in each time bin.",
+        "Top row = drug, bottom row = control, one column per litter — " +
+        "compare litters left-to-right, or drug vs. control top-to-bottom.",
     };
   }
 
@@ -251,10 +285,6 @@ export function getChartLabels(assignmentType, randomMazeEachRun) {
 
   return {
     mode: "stacked",
-    caption:
-      "Stacked histogram: green (bottom) = drug, gray (top) = control. " +
-      (randomMazeEachRun
-        ? "New maze each run — use Fast forward for large samples."
-        : "Same maze — all mice run together."),
+    caption: "",
   };
 }
