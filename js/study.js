@@ -184,6 +184,24 @@ export function usesMatchedDifference(assignmentType) {
   return assignmentType === "matched";
 }
 
+/** Splits records into one { litter, controlTimes, drugTimes } bucket per litter. */
+function groupRecordsByLitter(records) {
+  const groups = [];
+  for (let litter = 0; litter < CONFIG.numLitters; litter++) {
+    const litterRecords = records.filter((r) => r.litter === litter);
+    groups.push({
+      litter,
+      controlTimes: litterRecords.filter((r) => r.group === "control").map((r) => r.time),
+      drugTimes: litterRecords.filter((r) => r.group === "drug").map((r) => r.time),
+    });
+  }
+  return groups;
+}
+
+function litterName(litter) {
+  return LITTER_FUR[litter]?.name ?? `Litter ${litter + 1}`;
+}
+
 export function summarizeResults(records, assignmentType, randomMazeEachRun) {
   if (assignmentType === "matched") {
     const diffs = records.filter((r) => r.type === "difference").map((r) => r.time);
@@ -203,6 +221,23 @@ export function summarizeResults(records, assignmentType, randomMazeEachRun) {
     );
   }
 
+  if (assignmentType === "block") {
+    // Litter is the confound block assignment controls for, so the summary
+    // reports drug/control means and the difference separately PER LITTER —
+    // pooling them together would hide exactly the thing blocking fixes.
+    const byLitter = groupRecordsByLitter(records);
+    const parts = byLitter
+      .filter(({ controlTimes, drugTimes }) => controlTimes.length > 0 && drugTimes.length > 0)
+      .map(({ litter, controlTimes, drugTimes }) => {
+        const drugMean = round1(mean(drugTimes));
+        const controlMean = round1(mean(controlTimes));
+        const diff = round1(controlMean - drugMean);
+        return `${litterName(litter)} Control Mean - Drug Mean: ${diff}s`;
+      });
+
+    return parts.length > 0 ? parts.join("\n") : "Waiting for data…";
+  }
+
   const controlTimes = records.filter((r) => r.group === "control").map((r) => r.time);
   const drugTimes = records.filter((r) => r.group === "drug").map((r) => r.time);
 
@@ -214,34 +249,33 @@ export function summarizeResults(records, assignmentType, randomMazeEachRun) {
   const drugMean = round1(mean(drugTimes));
   const diff = round1(controlMean - drugMean);
 
-  const messages = {
-    random: `Control mean: ${controlMean}s · Drug mean: ${drugMean}s · Difference: ${diff}s.`,
-    block:
-      `Control mean: ${controlMean}s · Drug mean: ${drugMean}s · Difference: ${diff}s. ` +
-      "Top row: drug, one chart per litter. Bottom row: control, same litters.",
-  };
-
-  return messages[assignmentType] ?? "";
+  return `Control Mean - Drug Mean: ${diff}s.`;
 }
 
 function formatPValue(p) {
   const clamped = Math.max(0, Math.min(1, p));
   const pText = clamped < 0.001 ? "< 0.001" : String(Math.round(clamped * 1000) / 1000);
-  const pctText = clamped < 0.001 ? "< 0.1" : `${Math.round(clamped * 1000) / 10}`;
   const verdict =
     clamped < 0.05
-      ? "below the usual 0.05 cutoff — likely a real effect"
-      : "above the usual 0.05 cutoff — easily explained by chance";
+      ? "likely a real effect"
+      : "likely explained by chance";
 
-  return (
-    `P = ${pText} — if the drug truly had no effect, a difference at least this large ` +
-    `would happen by random chance about ${pctText}% of the time (${verdict}).`
-  );
+  return `P = ${pText} — ${verdict}.`;
 }
 
 /**
  * How likely the observed difference is under pure chance (no real drug effect):
- * a Welch two-sample t-test for random/block, a paired t-test for matched pairs.
+ * a Welch two-sample t-test for random/matched pairs (paired) — and, for block
+ * assignment, one Welch t-test PER LITTER, combined across litters:
+ *   - If every litter's difference points the SAME direction (drug faster in
+ *     both, or drug slower in both), that's reinforcing evidence, so the
+ *     combined probability is the product of the per-litter p-values (the
+ *     chance BOTH happen together by chance).
+ *   - If litters DISAGREE on direction (drug looked faster in one litter and
+ *     slower in the other), that's contradictory evidence, not reinforcing
+ *     evidence — multiplying would overstate how sure we are. Instead each
+ *     litter's confidence (1 − p) is signed by its direction and averaged,
+ *     so the litters partially cancel each other out rather than compound.
  */
 export function describeSignificance(records, assignmentType) {
   if (assignmentType === "matched") {
@@ -251,12 +285,48 @@ export function describeSignificance(records, assignmentType) {
     return result ? formatPValue(result.p) : "";
   }
 
+  if (assignmentType === "block") {
+    const byLitter = groupRecordsByLitter(records);
+    const results = byLitter.map(({ litter, controlTimes, drugTimes }) => {
+      if (controlTimes.length < 2 || drugTimes.length < 2) return null;
+      const result = welchTTest(drugTimes, controlTimes);
+      return result ? { litter, p: result.p, t: result.t } : null;
+    });
+
+    if (results.some((r) => r === null)) {
+      return "P = — (need at least 2 mice per group in each litter to compute)";
+    }
+
+    const perLitterText = results
+      .map(({ litter, p }) => `${litterName(litter)}: ${formatPValue(p)}`)
+      .join("\n");
+
+    const nonZeroSigns = results.map((r) => Math.sign(r.t)).filter((s) => s !== 0);
+    const litersAgree = nonZeroSigns.every((s) => s === nonZeroSigns[0]);
+
+    let combinedP;
+    let combinedNote = "";
+    if (litersAgree) {
+      combinedP = results.reduce((product, r) => product * r.p, 1);
+    } else {
+      const signedConfidence =
+        results.reduce((sum, r) => sum + Math.sign(r.t) * (1 - r.p), 0) / results.length;
+      combinedP = 1 - Math.abs(signedConfidence);
+      combinedNote = " (litters disagree on direction, so their evidence partially cancels instead of compounding)";
+    }
+    const combinedClamped = Math.max(0, Math.min(1, combinedP));
+
+    return (
+      `${perLitterText} ` +
+      `\nCombined probability: ${formatPValue(combinedClamped)}${combinedNote}`
+    );
+  }
+
   const controlTimes = records.filter((r) => r.group === "control").map((r) => r.time);
   const drugTimes = records.filter((r) => r.group === "drug").map((r) => r.time);
   if (controlTimes.length < 2 || drugTimes.length < 2) {
     return "P = — (need at least 2 mice per group to compute)";
   }
-
   const result = welchTTest(drugTimes, controlTimes);
   return result ? formatPValue(result.p) : "";
 }
@@ -265,9 +335,7 @@ export function getChartLabels(assignmentType, randomMazeEachRun) {
   if (assignmentType === "block") {
     return {
       mode: "block",
-      caption:
-        "Top row = drug, bottom row = control, one column per litter — " +
-        "compare litters left-to-right, or drug vs. control top-to-bottom.",
+      caption: "",
     };
   }
 

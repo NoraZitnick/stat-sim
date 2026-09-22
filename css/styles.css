@@ -10,7 +10,7 @@
   --muted: #5f6c7b;
   --accent: #2563eb;
   --accent-dark: #1d4ed8;
-  --control: #64748b;
+  --control: #000000;
   --drug: #16a34a;
   --border: #d9e2ec;
   --shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
@@ -201,17 +201,38 @@ fieldset.field {
   color: var(--muted);
 }
 
+.legend-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+}
+
+.legend-col {
+  padding: 0 1rem;
+}
+
+.legend-col:first-child {
+  padding-left: 0;
+  border-right: 1px solid var(--border);
+}
+
+.legend-col:last-child {
+  padding-right: 0;
+  padding-left: 1.5rem;
+}
+
 .legend-list {
   list-style: none;
   padding: 0;
   margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
 }
 
 .legend-list li {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  margin-bottom: 0.4rem;
   font-size: 0.9rem;
 }
 
@@ -243,10 +264,15 @@ fieldset.field {
   border: 1px solid rgba(0, 0, 0, 0.15);
 }
 
-.litter-legend {
-  margin-top: 0.5rem;
-  padding-top: 0.5rem;
-  border-top: 1px solid var(--border);
+.maze-section .legend-panel {
+  margin-top: 1rem;
+  padding: 0.85rem 1rem;
+  box-shadow: none;
+  background: #fbfbfa;
+}
+
+.maze-section .legend-panel h2 {
+  margin-bottom: 0.5rem;
 }
 
 .maze-section {
@@ -263,12 +289,6 @@ fieldset.field {
   align-items: baseline;
   gap: 1rem;
   margin-bottom: 0.5rem;
-}
-
-.run-info {
-  margin: 0;
-  color: var(--muted);
-  font-size: 0.9rem;
 }
 
 #maze-canvas {
@@ -294,6 +314,7 @@ fieldset.field {
   font-size: 0.88rem;
   color: var(--muted);
   margin: 0 0 0.75rem;
+  white-space: pre-line;
 }
 
 .chart-caption:empty {
@@ -417,6 +438,7 @@ fieldset.field {
   font-size: 0.88rem;
   font-weight: 600;
   color: var(--text);
+  white-space: pre-line;
 }
 
 .pvalue:empty {

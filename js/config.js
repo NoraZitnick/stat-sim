@@ -145,7 +145,7 @@ export const LITTER_FUR = [
 ];
 
 export const GROUP_RING = {
-  control: "#64748b",
+  control: "#000000",
   drug: "#16a34a",
 };
 

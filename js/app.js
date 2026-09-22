@@ -32,7 +32,6 @@ const fastForwardBtn = document.getElementById("fast-forward-btn");
 const statusEl = document.getElementById("status");
 const mazeCanvas = document.getElementById("maze-canvas");
 const mazeTitle = document.getElementById("maze-title");
-const runInfo = document.getElementById("run-info");
 const chartCaption = document.getElementById("chart-caption");
 const summaryEl = document.getElementById("summary");
 const pvalueEl = document.getElementById("pvalue");
@@ -301,15 +300,9 @@ async function runSimulation() {
     if (isMulti) {
       const phaseNote =
         assignmentType === "matched" ? ` · Phase ${batch[0].phase}` : "";
-      runInfo.textContent =
-        `${batch.length} mice exploring together${phaseNote} · ` +
-        `${newMazeEachRun ? "New maze each" : "Shared maze"} · Smart routing (no backtracking)`;
     } else {
       const r = runners[0];
       const run = r.run;
-      runInfo.textContent =
-        `Mouse #${run.mouse.id} · ${run.fur.name} litter · ` +
-        `${run.hasDrug ? "Drug" : "Control"} · ${r.path.length} steps · Speed ${r.speed}`;
     }
 
     statusEl.textContent = `Running ${completedRuns + 1}–${completedRuns + batch.length} / ${totalRuns}…`;
@@ -412,7 +405,6 @@ function resetAll() {
   summaryEl.textContent = "";
   pvalueEl.textContent = "";
   statusEl.textContent = "Ready. Choose settings and click Run simulation.";
-  runInfo.textContent = "—";
 
   const assignmentType = getAssignmentType();
   setupCharts(assignmentType, randomMazeEachRun());

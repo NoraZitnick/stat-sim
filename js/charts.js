@@ -17,7 +17,7 @@
 import { CONFIG, LITTER_FUR, mean, round1, stdDev } from "./config.js";
 
 const DRUG_COLOR = "#16a34a";
-const CONTROL_COLOR = "#64748b";
+const CONTROL_COLOR = "#000000";
 let max_count = 0;
 
 function formatStats(values) {
