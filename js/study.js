@@ -215,8 +215,6 @@ export function summarizeResults(records, assignmentType, randomMazeEachRun) {
 
     return (
       `Mean paired difference: ${meanDiff}s (control − drug). ` +
-      "Positive values mean the drug group was faster. " +
-      "Matched pairs chart each mouse's difference, not separate runs." +
       learningNote
     );
   }
@@ -345,9 +343,7 @@ export function getChartLabels(assignmentType, randomMazeEachRun) {
       : "All mice run together on the same maze — 2nd phase is faster from practice.";
     return {
       mode: "difference",
-      caption:
-        `Each mouse contributes one bar: (control time − drug time). ${mazeNote} ` +
-        "Positive = drug was faster.",
+      caption: "",
     };
   }
 
