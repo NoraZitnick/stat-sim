@@ -15,6 +15,8 @@
 import { CONFIG, LITTER_FUR, GROUP_RING, randomNormal, shuffle, round1, mean } from "./config.js";
 import { welchTTest, pairedTTest } from "./inference.js";
 
+let currentDiff = 0;
+
 export function createMice(sampleSize) {
   const mice = [];
   for (let i = 0; i < sampleSize; i++) {
@@ -207,14 +209,14 @@ export function summarizeResults(records, assignmentType, randomMazeEachRun) {
     const diffs = records.filter((r) => r.type === "difference").map((r) => r.time);
     if (diffs.length === 0) return "Waiting for paired differences…";
 
-    const meanDiff = round1(mean(diffs));
+    currentDiff = round1(mean(diffs));
     const learningNote =
       !randomMazeEachRun
         ? " Same maze reused — 2nd runs include a learning effect (not from the drug)."
         : "";
 
     return (
-      `Mean paired difference: ${meanDiff}s (control − drug). ` +
+      `Mean paired difference: ${currentDiff}s (control − drug). ` +
       learningNote
     );
   }
@@ -229,8 +231,8 @@ export function summarizeResults(records, assignmentType, randomMazeEachRun) {
       .map(({ litter, controlTimes, drugTimes }) => {
         const drugMean = round1(mean(drugTimes));
         const controlMean = round1(mean(controlTimes));
-        const diff = round1(controlMean - drugMean);
-        return `${litterName(litter)} Control Mean - Drug Mean: ${diff}s`;
+        currentDiff = round1(controlMean - drugMean);
+        return `${litterName(litter)} Control Mean - Drug Mean: ${currentDiff}s`;
       });
 
     return parts.length > 0 ? parts.join("\n") : "Waiting for data…";
@@ -245,9 +247,9 @@ export function summarizeResults(records, assignmentType, randomMazeEachRun) {
 
   const controlMean = round1(mean(controlTimes));
   const drugMean = round1(mean(drugTimes));
-  const diff = round1(controlMean - drugMean);
+  currentDiff = round1(controlMean - drugMean);
 
-  return `Control Mean - Drug Mean: ${diff}s.`;
+  return `Control Mean - Drug Mean: ${currentDiff}s.`;
 }
 
 function formatPValue(p) {
@@ -351,4 +353,8 @@ export function getChartLabels(assignmentType, randomMazeEachRun) {
     mode: "stacked",
     caption: "",
   };
+}
+
+export function getCurrentDiff() {
+  return currentDiff;
 }

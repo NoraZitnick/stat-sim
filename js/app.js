@@ -21,8 +21,9 @@ import {
   getChartLabels,
   usesBlockCharts,
   usesMatchedDifference,
+  getCurrentDiff,
 } from "./study.js";
-import { createChartManager } from "./charts.js";
+import {HistogramRunHistory, createChartManager } from "./charts.js";
 
 const sampleSizeInput = document.getElementById("sample-size");
 const randomMazeToggle = document.getElementById("random-maze");
@@ -36,12 +37,15 @@ const chartCaption = document.getElementById("chart-caption");
 const summaryEl = document.getElementById("summary");
 const pvalueEl = document.getElementById("pvalue");
 const chartsGrid = document.getElementById("charts-grid");
+const chartButtons = document.querySelectorAll(".chart-button");
 
-let histograms = createChartManager("random", chartsGrid);
 let isRunning = false;
 let fastForwardRequested = false;
 let cancelRequested = false;
 let finishedRecords = [];
+let diffRecords = [[], [], []];
+let chartMode = "run";
+let histograms = createChartManager("random", chartsGrid, chartMode, diffRecords);
 let mazeMemory = new Set();
 /** Tracks control & drug times per mouse for matched pairs */
 const pairTracker = new Map();
@@ -120,6 +124,9 @@ function setControlsEnabled(enabled) {
   document.querySelectorAll('input[name="assignment"]').forEach((el) => {
     el.disabled = !enabled;
   });
+  chartButtons.forEach((button) => {
+    button.disabled = !enabled || isRunning;
+  });
   if (!enabled) {
     fastForwardBtn.disabled = false;
   } else {
@@ -131,15 +138,31 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function updateChartButtons() {
+  chartButtons.forEach((button) => {
+    const isActive = button.dataset.mode === chartMode;
+    button.classList.toggle("is-active", isActive);
+    button.disabled = isRunning;
+  });
+}
+
 function setupCharts(assignmentType, newMazeEachRun) {
   histograms.destroy();
-  histograms = createChartManager(assignmentType, chartsGrid);
-  chartCaption.textContent = getChartLabels(assignmentType, newMazeEachRun).caption;
+  histograms = createChartManager(assignmentType, chartsGrid, chartMode, diffRecords);
+  if (chartMode === "multi" && histograms instanceof HistogramRunHistory) {
+    chartCaption.textContent = "Recorded differences across multiple runs.";
+    chartCaption.style.display = "block";
+  } else {
+    chartCaption.textContent = getChartLabels(assignmentType, newMazeEachRun).caption;
+    chartCaption.style.display = "block";
+  }
+  updateChartButtons();
 }
 
 function refreshSummary(assignmentType, newMazeEachRun) {
-  summaryEl.textContent = summarizeResults(finishedRecords, assignmentType, newMazeEachRun);
-  pvalueEl.textContent = describeSignificance(finishedRecords, assignmentType);
+  let text = summarizeResults(finishedRecords, assignmentType, newMazeEachRun);
+  summaryEl.textContent = chartMode !== "multi" ? text : "";
+  pvalueEl.textContent = chartMode !== "multi" ? describeSignificance(finishedRecords, assignmentType) : "";
 }
 
 function getMazeFromCache(run, assignmentType, cache) {
@@ -261,7 +284,9 @@ async function runSimulation() {
   const newMazeEachRun = randomMazeEachRun();
 
   setupCharts(assignmentType, newMazeEachRun);
-  histograms.reset();
+  if (chartMode !== "multi") {
+    histograms.reset();
+  }
   summaryEl.textContent = "";
   pvalueEl.textContent = "";
 
@@ -386,6 +411,15 @@ async function runSimulation() {
 
   isRunning = false;
   fastForwardRequested = false;
+  let index = assignmentType === "random" ? 0 : assignmentType === "block" ? 1 : 2;
+  if (diffRecords[index][0] !== sampleSize) {
+    diffRecords[index] = [sampleSize];
+  }
+  diffRecords[index].push(getCurrentDiff());
+  if (chartMode === "multi") {
+    histograms.syncFromRecords(diffRecords, assignmentType);
+  }
+  console.log("All diffs recorded:", diffRecords);
   setControlsEnabled(true);
 
   if (cancelRequested) {
@@ -451,7 +485,20 @@ document.querySelectorAll('input[name="assignment"]').forEach((el) => {
   });
 });
 
-randomMazeToggle.addEventListener("change", updateFastForwardButton);
+chartButtons.forEach((button) => {
+  button.addEventListener("click", () => {
+    if (isRunning) return;
+    chartMode = button.dataset.mode;
+    setupCharts(getAssignmentType(), randomMazeEachRun());
+    refreshSummary(getAssignmentType(), randomMazeEachRun());
+  });
+});
+
+randomMazeToggle.addEventListener("change", () => {
+  updateFastForwardButton();
+  resetDiffRecords();
+  if (!isRunning) setupCharts(getAssignmentType(), randomMazeEachRun());
+});
 
 function buildLitterLegend() {
   const list = document.getElementById("litter-legend");
@@ -459,6 +506,10 @@ function buildLitterLegend() {
     (fur, i) =>
       `<li><span class="swatch fur" style="background:${fur.fur}"></span> Litter ${i + 1} — ${fur.name}</li>`
   ).join("");
+}
+
+export function resetDiffRecords() {
+  diffRecords = [[], [], []];
 }
 
 buildLitterLegend();

@@ -75,7 +75,7 @@ function stackedOptions(xTitle = "Time (s)", yTitle = "Count") {
       },
       tooltip: {
         callbacks: {
-          title: (items) => `Time: ${items[0]?.label ?? ""}s`,
+          title: (items) => `Time: ${items[0]?.label ?? ""}`,
           label: (ctx) => `${ctx.dataset.label}: ${ctx.parsed.y} mouse${ctx.parsed.y === 1 ? "" : "es"}`,
         },
       },
@@ -113,12 +113,11 @@ function makeTimeBins(binMin = CONFIG.binMin, binMax = CONFIG.binMax) {
   return { labels, edges };
 }
 
-function makeDiffBins(binMin = CONFIG.diffBinMin, binMax = CONFIG.diffBinMax) {
-  const { diffBinWidth } = CONFIG;
+function makeDiffBins(binMin = CONFIG.diffBinMin, binMax = CONFIG.diffBinMax, binWidth = CONFIG.diffBinWidth) {
   const labels = [];
   const edges = [];
-  for (let start = binMin; start < binMax; start += diffBinWidth) {
-    const end = start + diffBinWidth;
+  for (let start = binMin; start < binMax; start += binWidth) {
+    const end = start + binWidth;
     labels.push(formatBinLabel(start, end));
     edges.push({ start, end, count: 0 });
   }
@@ -666,7 +665,126 @@ export class HistogramDifference {
   }
 }
 
-export function createChartManager(assignmentType, container) {
+export class HistogramRunHistory {
+  constructor(container, records = [[], [], []], assignmentType) {
+    this.mode = "multi-run";
+    records;
+    this.binSpec = makeDiffBins();
+    this.edges = this.binSpec.edges.map((e) => ({ ...e, count: 0 }));
+    this.rawDiffs = [];
+
+    container.className = "charts-grid charts-grid--1";
+    container.innerHTML = `
+      <div class="chart-box chart-box--wide">
+        ${infoIconMarkup()}
+        <h3>Recorded run differences</h3>
+        <canvas id="chart-run-history"></canvas>
+      </div>
+    `;
+
+    this.chart = new Chart(container.querySelector("#chart-run-history"), {
+      type: "bar",
+      data: {
+        labels: this.binSpec.labels,
+        datasets: [
+          {
+            label: "Frequency",
+            data: this.edges.map(() => 0),
+            backgroundColor: "#2563ebcc",
+            borderColor: "#2563eb",
+            borderWidth: 1,
+          },
+        ],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: { duration: 200 },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              title: (items) => `Difference: ${items[0]?.label ?? ""}s`,
+              label: (ctx) => `${ctx.parsed.y} run${ctx.parsed.y === 1 ? "" : "s"}`,
+            },
+          },
+        },
+        scales: {
+          x: {
+            title: { display: true, text: "Difference (s)" },
+            ticks: { maxRotation: 0, minRotation: 0, autoSkip: true, maxTicksLimit: 8, font: { size: 9 } },
+          },
+          y: {
+            beginAtZero: true,
+            ticks: { stepSize: 1, font: { size: 9 } },
+            title: { display: true, text: "Frequency" },
+          },
+        },
+      },
+    });
+
+    this.syncFromRecords(records, assignmentType);
+  }
+
+  syncFromRecords(records, assignmentType) {
+    const allDiffs = records[assignmentType === "random" ? 0 : assignmentType === "block" ? 1 : 2].slice(1);
+
+    this.rawDiffs = allDiffs;
+    let workingEdges = this.binSpec.edges.map((e) => ({ ...e, count: 0 }));
+    let workingSpec = this.binSpec;
+
+    for (const diff of allDiffs) {
+      const expanded = expandBinsToCoverValue(
+        workingEdges,
+        workingSpec,
+        diff,
+        CONFIG.diffBinWidthMultiGraph,
+        (binMin, binMax, binWidth) => makeDiffBins(binMin, binMax, CONFIG.diffBinWidthMultiGraph),
+        (slot, existing) => ({
+          ...slot,
+          count: existing ? existing.count : 0,
+        })
+      );
+      workingEdges = expanded.edges;
+      workingSpec = { labels: expanded.labels, edges: expanded.edges };
+
+      const idx = valueToBinIndex(workingEdges, diff);
+      workingEdges[idx].count += 1;
+    }
+
+    this.binSpec = workingSpec;
+    this.edges = workingEdges;
+    this.chart.data.labels = this.binSpec.labels;
+    this.chart.data.datasets[0].data = this.edges.map((e) => e.count);
+    updateChart(this.chart);
+    this.updateStats();
+  }
+
+
+  updateStats() {
+    setInfoTooltip(
+      this.chart.canvas.closest(".chart-box"),
+      `n = ${this.rawDiffs.length}\nMean = ${round1(mean(this.rawDiffs))}s\nSD = ${round1(stdDev(this.rawDiffs))}s`
+    );
+  }
+
+  reset() {
+    this.syncFromRecords([[], [], []], "");
+  }
+
+  destroy() {
+    this.chart.destroy();
+  }
+
+  addResultsBatch(records) {}
+  addResult(group, time, litter) {}
+  addDifference(diff) {}
+  addDifferencesBatch(diffs) {}
+
+}
+
+export function createChartManager(assignmentType, container, mode = "run", diffRecords = [[], [], []]) {
+  if (mode === "multi") return new HistogramRunHistory(container, diffRecords, assignmentType);
   if (assignmentType === "block") return new HistogramBlockStacked(container);
   if (assignmentType === "matched") return new HistogramDifference(container);
   return new HistogramStacked(container);

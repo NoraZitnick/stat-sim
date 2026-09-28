@@ -118,6 +118,7 @@ export const CONFIG = {
 
   /** Matched pairs: histogram of (control time − drug time) per mouse */
   diffBinWidth: 2,
+  diffBinWidthMultiGraph:1,
   diffBinMin: -12,
   diffBinMax: 12,
 
