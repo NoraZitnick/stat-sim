@@ -148,7 +148,7 @@ function updateChartButtons() {
 
 function setupCharts(assignmentType, newMazeEachRun) {
   if (chartMode === "multi" && histograms instanceof HistogramRunHistory) {
-    chartCaption.textContent = "Recorded differences across multiple runs.";
+    chartCaption.textContent = "";
     chartCaption.style.display = "block";
   } else {
     histograms.destroy();
@@ -487,6 +487,9 @@ document.querySelectorAll('input[name="assignment"]').forEach((el) => {
     if (!isRunning) setupCharts(getAssignmentType(), randomMazeEachRun());
     pvalueEl.textContent = "";
     summaryEl.textContent = "";
+    if (chartMode === "multi") {
+      histograms.syncFromRecords(diffRecords, getAssignmentType());
+    }
   });
 });
 

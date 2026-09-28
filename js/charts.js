@@ -669,7 +669,11 @@ export class HistogramRunHistory {
   constructor(container, records = [[], [], []], assignmentType) {
     this.mode = "multi-run";
     records;
-    this.binSpec = makeDiffBins();
+    this.binSpec = makeDiffBins(
+      CONFIG.diffBinMin,
+      CONFIG.diffBinMax,
+      CONFIG.diffBinWidthMultiGraph
+    );
     this.edges = this.binSpec.edges.map((e) => ({ ...e, count: 0 }));
     this.rawDiffs = [];
 
@@ -739,7 +743,7 @@ export class HistogramRunHistory {
         workingSpec,
         diff,
         CONFIG.diffBinWidthMultiGraph,
-        (binMin, binMax, binWidth) => makeDiffBins(binMin, binMax, CONFIG.diffBinWidthMultiGraph),
+        (binMin, binMax) => makeDiffBins(binMin, binMax, CONFIG.diffBinWidthMultiGraph),
         (slot, existing) => ({
           ...slot,
           count: existing ? existing.count : 0,
