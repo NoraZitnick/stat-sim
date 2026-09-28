@@ -147,12 +147,12 @@ function updateChartButtons() {
 }
 
 function setupCharts(assignmentType, newMazeEachRun) {
-  histograms.destroy();
-  histograms = createChartManager(assignmentType, chartsGrid, chartMode, diffRecords);
   if (chartMode === "multi" && histograms instanceof HistogramRunHistory) {
     chartCaption.textContent = "Recorded differences across multiple runs.";
     chartCaption.style.display = "block";
   } else {
+    histograms.destroy();
+    histograms = createChartManager(assignmentType, chartsGrid, chartMode, diffRecords);
     chartCaption.textContent = getChartLabels(assignmentType, newMazeEachRun).caption;
     chartCaption.style.display = "block";
   }
@@ -436,6 +436,9 @@ function resetAll() {
   mazeMemory = new Set();
   resetPairTracker();
   histograms.reset();
+  if (!cancelRequested) {
+    diffRecords = [[], [], []];
+  }
   summaryEl.textContent = "";
   pvalueEl.textContent = "";
   statusEl.textContent = "Ready. Choose settings and click Run simulation.";
@@ -482,6 +485,8 @@ fastForwardBtn.addEventListener("click", () => {
 document.querySelectorAll('input[name="assignment"]').forEach((el) => {
   el.addEventListener("change", () => {
     if (!isRunning) setupCharts(getAssignmentType(), randomMazeEachRun());
+    pvalueEl.textContent = "";
+    summaryEl.textContent = "";
   });
 });
 
@@ -496,7 +501,7 @@ chartButtons.forEach((button) => {
 
 randomMazeToggle.addEventListener("change", () => {
   updateFastForwardButton();
-  resetDiffRecords();
+  resetAll();
   if (!isRunning) setupCharts(getAssignmentType(), randomMazeEachRun());
 });
 
@@ -508,9 +513,6 @@ function buildLitterLegend() {
   ).join("");
 }
 
-export function resetDiffRecords() {
-  diffRecords = [[], [], []];
-}
 
 buildLitterLegend();
 updateFastForwardButton();

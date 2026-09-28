@@ -769,7 +769,7 @@ export class HistogramRunHistory {
   }
 
   reset() {
-    this.syncFromRecords([[], [], []], "");
+    this.syncFromRecords([[0], [0], [0]], "");
   }
 
   destroy() {
