@@ -106,7 +106,7 @@ export const CONFIG = {
   // ---------------------------------------------------------------------
   // Animation pacing (purely visual — does not affect any statistics)
   // ---------------------------------------------------------------------
-  animTimeScale: 1,
+  animTimeScale: 0.1,
   pauseBetweenRuns: 200,
 
   // ---------------------------------------------------------------------

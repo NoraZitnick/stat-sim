@@ -42,6 +42,7 @@ const chartButtons = document.querySelectorAll(".chart-button");
 let isRunning = false;
 let fastForwardRequested = false;
 let cancelRequested = false;
+let multiRunCancelRequested = false;
 let finishedRecords = [];
 let diffRecords = [[], [], []];
 let chartMode = "run";
@@ -150,6 +151,7 @@ function setupCharts(assignmentType, newMazeEachRun) {
   if (chartMode === "multi" && histograms instanceof HistogramRunHistory) {
     chartCaption.textContent = "";
     chartCaption.style.display = "block";
+    renderRunCountBox();
   } else {
     histograms.destroy();
     histograms = createChartManager(assignmentType, chartsGrid, chartMode, diffRecords);
@@ -161,8 +163,57 @@ function setupCharts(assignmentType, newMazeEachRun) {
 
 function refreshSummary(assignmentType, newMazeEachRun) {
   let text = summarizeResults(finishedRecords, assignmentType, newMazeEachRun);
-  summaryEl.textContent = chartMode !== "multi" ? text : "";
-  pvalueEl.textContent = chartMode !== "multi" ? describeSignificance(finishedRecords, assignmentType) : "";
+  if (chartMode !== "multi") {
+    summaryEl.textContent = text;
+    pvalueEl.textContent = describeSignificance(finishedRecords, assignmentType);
+  }
+  if (chartMode === "multi") {
+    pvalueEl.textContent = "";
+    histograms.syncFromRecords(diffRecords, assignmentType);
+    renderRunCountBox();
+  }
+}
+
+function renderRunCountBox() {
+    summaryEl.textContent = "";
+    let label = document.createElement("label");
+    label.className = "multi-run-count-field";
+    let runCountBox = document.createElement("input");
+    runCountBox.type = "number";
+    runCountBox.min = 1;
+    runCountBox.max = 1000;
+    runCountBox.id = "multi-run-count";
+    runCountBox.step = 2;
+    label.appendChild(runCountBox);
+    summaryEl.appendChild(label);
+    runCountBox.insertAdjacentHTML('afterend', '<span class="side-text"> experiments to graph</span>');
+    runCountBox.insertAdjacentHTML('beforebegin', '<span class="side-text"> Add </span>');
+    runCountBox.addEventListener("change", () => {
+      addRuns(parseInt(runCountBox.value, 0));
+    });
+}
+
+async function addRuns(runs) {
+  const count = Number.parseInt(runs, 0);
+  if (!Number.isFinite(count) || count <= 0) return;
+  multiRunCancelRequested = false;
+  for (let i = 0; i < count; i++) {
+    try {
+      await runSimulation(true);
+    } catch (err) {
+      console.error(err);
+      statusEl.textContent = "Something went wrong. Check the console.";
+      isRunning = false;
+      cancelRequested = false;
+      fastForwardRequested = false;
+      setControlsEnabled(true);
+      break;
+    }
+    if (multiRunCancelRequested) {
+      multiRunCancelRequested = false;
+      break;
+    }
+  }
 }
 
 function getMazeFromCache(run, assignmentType, cache) {
@@ -269,10 +320,10 @@ async function bulkSimulateRuns(runs, assignmentType, newMazeEachRun, mazeCache)
   }
 }
 
-async function runSimulation() {
+async function runSimulation(fastMode = false) {
   if (isRunning) return;
   isRunning = true;
-  fastForwardRequested = false;
+  fastForwardRequested = fastMode;
   cancelRequested = false;
   setControlsEnabled(false);
   finishedRecords = [];
@@ -287,8 +338,7 @@ async function runSimulation() {
   if (chartMode !== "multi") {
     histograms.reset();
   }
-  summaryEl.textContent = "";
-  pvalueEl.textContent = "";
+  resetPValueAndSummary();
 
   const mice = createMice(sampleSize);
   const runs = buildExperiment(mice, assignmentType);
@@ -439,8 +489,8 @@ function resetAll() {
   if (!cancelRequested) {
     diffRecords = [[], [], []];
   }
-  summaryEl.textContent = "";
-  pvalueEl.textContent = "";
+
+  resetPValueAndSummary();
   statusEl.textContent = "Ready. Choose settings and click Run simulation.";
 
   const assignmentType = getAssignmentType();
@@ -469,6 +519,9 @@ runBtn.addEventListener("click", () => {
 resetBtn.addEventListener("click", () => {
   if (isRunning) {
     cancelRequested = true;
+    if (chartMode === "multi") {
+      multiRunCancelRequested = true;
+    }
     statusEl.textContent = "Cancelling…";
     return;
   }
@@ -485,8 +538,7 @@ fastForwardBtn.addEventListener("click", () => {
 document.querySelectorAll('input[name="assignment"]').forEach((el) => {
   el.addEventListener("change", () => {
     if (!isRunning) setupCharts(getAssignmentType(), randomMazeEachRun());
-    pvalueEl.textContent = "";
-    summaryEl.textContent = "";
+    resetPValueAndSummary();
     if (chartMode === "multi") {
       histograms.syncFromRecords(diffRecords, getAssignmentType());
     }
@@ -516,6 +568,14 @@ function buildLitterLegend() {
   ).join("");
 }
 
+function resetPValueAndSummary() {
+  pvalueEl.textContent = "";
+  if (chartMode !== "multi") {
+    summaryEl.textContent = "";
+  } else {
+    renderRunCountBox();
+  }
+}
 
 buildLitterLegend();
 updateFastForwardButton();
