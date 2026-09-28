@@ -1,5 +1,5 @@
 /* ==========================================================================
-   Maze Mouse Drug Study — Styles
+   Maze Turtle Drug Study — Styles
    Clean layout for sidebar + maze + histograms
    ========================================================================== */
 
@@ -10,8 +10,8 @@
   --muted: #5f6c7b;
   --accent: #2563eb;
   --accent-dark: #1d4ed8;
-  --control: #000000;
-  --drug: #16a34a;
+  --control: #9ca3af;
+  --drug: #f59e0b;
   --border: #d9e2ec;
   --shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
 }
@@ -334,8 +334,8 @@ fieldset.field {
   grid-template-columns: 1fr 1fr;
 }
 
-/* Block assignment: 2x2 grid — top row is drug (litter 0, litter 1), bottom
-   row is control (litter 0, litter 1), so it reads as a 2x2 comparison. */
+/* Block assignment: 2x2 grid — top row is drug (clutch 0, clutch 1), bottom
+   row is control (clutch 0, clutch 1), so it reads as a 2x2 comparison. */
 .charts-grid--4 {
   grid-template-columns: 1fr 1fr;
 }

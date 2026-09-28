@@ -4,8 +4,8 @@
  * number generator).
  *
  * If you're a student reading this: every number below is a choice we made
- * about how the *imaginary* mice behave. Nothing here is measured from real
- * mice — it's a model we designed so the statistics lessons (confounding,
+ * about how the *imaginary* turtles behave. Nothing here is measured from real
+ * turtles — it's a model we designed so the statistics lessons (confounding,
  * blocking, matched pairs, p-values) show up clearly in the results.
  */
 
@@ -15,10 +15,10 @@ export const CONFIG = {
   // ---------------------------------------------------------------------
   mazeCols: 15,
   mazeRows: 15,
-  numLitters: 2,
+  numClutchs: 2,
 
   // ---------------------------------------------------------------------
-  // The outcome variable: how long (in seconds) a mouse takes to finish.
+  // The outcome variable: how long (in seconds) a turtle takes to finish.
   // This is drawn from a normal distribution — a classic bell curve —
   // centered at timeMean with spread timeStdDev, the same way a real
   // measurement (like reaction time) clusters around a typical value with
@@ -27,7 +27,7 @@ export const CONFIG = {
   timeMean: 26,
   timeStdDev: 4,
 
-  /** No mouse is ever shown finishing faster than this or slower than this. */
+  /** No turtle is ever shown finishing faster than this or slower than this. */
   timeFloor: 8,
   timeCeiling: 55,
 
@@ -36,10 +36,10 @@ export const CONFIG = {
   // ---------------------------------------------------------------------
 
   /**
-   * How many seconds faster the drug truly makes a mouse, on average.
+   * How many seconds faster the drug truly makes a turtle, on average.
    * This is deliberately a SMALL effect relative to the noise below: with
-   * random assignment and a sample of 20 mice, ordinary sampling
-   * variability (plus the litter confound) makes the drug group look
+   * random assignment and a sample of 20 turtles, ordinary sampling
+   * variability (plus the clutch confound) makes the drug group look
    * slower than control in the observed sample about 30% of the time —
    * even though the drug really does help on average. That's the whole
    * point of the lesson: a small random sample can mislead you. Block and
@@ -47,7 +47,7 @@ export const CONFIG = {
    * same true effect far more reliably at the same sample size.
    */
   drugTimeReduction: 3,
-  /** Mouse-to-mouse variation in how well the drug works for them. */
+  /** Turtle-to-turtle variation in how well the drug works for them. */
   drugTimeNoise: 1,
 
   // ---------------------------------------------------------------------
@@ -56,18 +56,18 @@ export const CONFIG = {
   // ---------------------------------------------------------------------
 
   /**
-   * Litter is a CONFOUNDING VARIABLE: it affects completion time but has
-   * nothing to do with the drug. Litter 0 (Brown) runs slightly slower,
-   * litter 1 (Gray) runs slightly faster, regardless of drug or control.
-   *   - Random assignment can end up with more of one litter in one group
+   * Clutch is a CONFOUNDING VARIABLE: it affects completion time but has
+   * nothing to do with the drug. Clutch 0 (Brown) runs slightly slower,
+   * clutch 1 (Green) runs slightly faster, regardless of drug or control.
+   *   - Random assignment can end up with more of one clutch in one group
    *     by chance, letting this confound masquerade as a "drug effect."
-   *   - Block assignment splits each litter evenly between drug and
+   *   - Block assignment splits each clutch evenly between drug and
    *     control, so the confound can't accumulate in either group.
-   *   - Matched pairs runs the SAME mouse both ways, so its litter effect
+   *   - Matched pairs runs the SAME turtle both ways, so its clutch effect
    *     is identical in both runs and cancels out exactly when we compute
-   *     that mouse's (control − drug) difference.
+   *     that turtle's (control − drug) difference.
    */
-  litterTimeShift: [3, -3],
+  clutchTimeShift: [3, -3],
 
   /**
    * Extra noise added on top of the base spread, one value per assignment
@@ -84,8 +84,8 @@ export const CONFIG = {
   /**
    * Extra noise from maze-to-maze difficulty differences. This ONLY
    * applies when "New random maze each run" is checked, because that's the
-   * only time it's real: every mouse then solves a different maze, and
-   * some mazes are just harder than others. When every mouse solves the
+   * only time it's real: every turtle then solves a different maze, and
+   * some mazes are just harder than others. When every turtle solves the
    * SAME maze, that source of variation genuinely doesn't exist — not just
    * "unmodeled," but literally absent, since maze difficulty is identical
    * for everyone.
@@ -93,9 +93,9 @@ export const CONFIG = {
   newMazeSpread: 2.5,
 
   /**
-   * A mouse that already solved this maze once runs it faster the second
+   * A turtle that already solved this maze once runs it faster the second
    * time — ordinary practice/learning, unrelated to the drug. This only
-   * applies to a matched-pairs mouse's SECOND run, and only when the maze
+   * applies to a matched-pairs turtle's SECOND run, and only when the maze
    * is shared (reused) rather than regenerated. It's a second, separate
    * confound the class can discover: even matched pairs isn't automatically
    * perfect if the same maze is reused without accounting for practice.
@@ -106,7 +106,7 @@ export const CONFIG = {
   // ---------------------------------------------------------------------
   // Animation pacing (purely visual — does not affect any statistics)
   // ---------------------------------------------------------------------
-  animTimeScale: 0.1,
+  animTimeScale: 1,
   pauseBetweenRuns: 200,
 
   // ---------------------------------------------------------------------
@@ -116,7 +116,7 @@ export const CONFIG = {
   binMin: 0,
   binMax: 48,
 
-  /** Matched pairs: histogram of (control time − drug time) per mouse */
+  /** Matched pairs: histogram of (control time − drug time) per turtle */
   diffBinWidth: 2,
   diffBinWidthMultiGraph:1,
   diffBinMin: -12,
@@ -140,14 +140,14 @@ export const CONFIG = {
   fastForwardBatchSize: 100,
 };
 
-export const LITTER_FUR = [
+export const CLUTCH_FUR = [
   { fur: "#8B5E3C", belly: "#E8C4A0", ear: "#5C3D28", tail: "#4A3020", nose: "#2D1810", name: "Brown" },
-  { fur: "#7A8B99", belly: "#D8E0E8", ear: "#556270", tail: "#445058", nose: "#2A3238", name: "Gray" },
+  { fur: "#5E8C59", belly: "#DDEED7", ear: "#3F6D42", tail: "#2F5232", nose: "#1F3621", name: "Green" },
 ];
 
 export const GROUP_RING = {
-  control: "#000000",
-  drug: "#16a34a",
+  control: "#9ca3af",
+  drug: "#f59e0b",
 };
 
 /** One random draw from a normal (bell-curve) distribution — the Box-Muller method. */

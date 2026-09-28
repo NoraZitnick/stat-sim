@@ -3,9 +3,9 @@
  *   - HistogramStacked: random assignment — a Drug histogram and a Control
  *     histogram, side by side.
  *   - HistogramBlockStacked: block assignment — the same, but split again
- *     into a 2x2 grid by litter, so each litter's drug/control comparison
+ *     into a 2x2 grid by clutch, so each clutch's drug/control comparison
  *     can be read on its own.
- *   - HistogramDifference: matched pairs — one histogram of each mouse's
+ *   - HistogramDifference: matched pairs — one histogram of each turtle's
  *     (control time − drug time), since that's the number that actually
  *     matters for this design.
  *
@@ -14,10 +14,10 @@
  * otherwise have to compute by hand from the bars.
  */
 
-import { CONFIG, LITTER_FUR, mean, round1, stdDev } from "./config.js";
+import { CONFIG, CLUTCH_FUR, mean, round1, stdDev } from "./config.js";
 
-const DRUG_COLOR = "#16a34a";
-const CONTROL_COLOR = "#000000";
+const DRUG_COLOR = "#f59e0b";
+const CONTROL_COLOR = "#9ca3af";
 let max_count = 0;
 
 function formatStats(values) {
@@ -76,7 +76,7 @@ function stackedOptions(xTitle = "Time (s)", yTitle = "Count") {
       tooltip: {
         callbacks: {
           title: (items) => `Time: ${items[0]?.label ?? ""}`,
-          label: (ctx) => `${ctx.dataset.label}: ${ctx.parsed.y} mouse${ctx.parsed.y === 1 ? "" : "es"}`,
+          label: (ctx) => `${ctx.dataset.label}: ${ctx.parsed.y} turtle${ctx.parsed.y === 1 ? "" : "es"}`,
         },
       },
     },
@@ -151,11 +151,11 @@ function expandBinsToCoverValue(edges, currentSpec, value, width, makeBins, copy
 }
 
 /**
- * Grow the shared bin range (used across all litter charts) just enough to cover a
+ * Grow the shared bin range (used across all clutch charts) just enough to cover a
  * new value — never shrinks and never drops bins that already hold data. Recomputing
  * the range from only the currently non-empty bins (the old approach) could silently
  * discard counts sitting outside the new narrower window, which is what produced the
- * "cut off" tail on charts whose values already reached lower than other litters'.
+ * "cut off" tail on charts whose values already reached lower than other clutchs'.
  */
 function growBlockBinsToCoverValue(charts, currentSpec, value, width) {
   const minStart = Math.min(...charts.flatMap((entry) => entry.edges.map((e) => e.start)));
@@ -389,21 +389,21 @@ export class HistogramStacked {
   }
 }
 
-/** Four litter-specific histograms, each with separate drug/control panels */
+/** Four clutch-specific histograms, each with separate drug/control panels */
 export class HistogramBlockStacked {
   constructor(container) {
     this.mode = "block";
     this.binSpec = makeTimeBins();
     container.className = "charts-grid charts-grid--4";
 
-    this.litters = LITTER_FUR.map((fur, i) => {
-      return { litter: i, name: fur.name };
+    this.clutchs = CLUTCH_FUR.map((fur, i) => {
+      return { clutch: i, name: fur.name };
     });
 
     // Laid out as a 2x2 grid in DOM order (grid auto-placement fills left-to-right,
-    // top-to-bottom): top row = drug for each litter, bottom row = control for each
-    // litter — so top-left/top-right are litter 0/1 drugged, bottom-left/bottom-right
-    // are litter 0/1 control.
+    // top-to-bottom): top row = drug for each clutch, bottom row = control for each
+    // clutch — so top-left/top-right are clutch 0/1 drugged, bottom-left/bottom-right
+    // are clutch 0/1 control.
     const groups = [
       { key: "drug", label: "Drug" },
       { key: "control", label: "Control" },
@@ -411,36 +411,36 @@ export class HistogramBlockStacked {
 
     container.innerHTML = groups
       .map((g) =>
-        this.litters
+        this.clutchs
           .map(
             (l) => `
       <div class="chart-box chart-box--quad">
         ${infoIconMarkup()}
         <h3>${l.name} — ${g.label}</h3>
-        <canvas id="chart-${l.litter}-${g.key}"></canvas>
+        <canvas id="chart-${l.clutch}-${g.key}"></canvas>
       </div>`
           )
           .join("")
       )
       .join("");
 
-    this.charts = this.litters.map((l) => {
+    this.charts = this.clutchs.map((l) => {
       const edges = freshTimeEdges(this.binSpec);
       return {
-        litter: l.litter,
+        clutch: l.clutch,
         edges,
         rawDrug: [],
         rawControl: [],
         charts: {
           drug: buildSeparateHistogramChart(
-            container.querySelector(`#chart-${l.litter}-drug`),
+            container.querySelector(`#chart-${l.clutch}-drug`),
             this.binSpec,
             edges.map((e) => e.drug),
             "Drug",
             DRUG_COLOR
           ),
           control: buildSeparateHistogramChart(
-            container.querySelector(`#chart-${l.litter}-control`),
+            container.querySelector(`#chart-${l.clutch}-control`),
             this.binSpec,
             edges.map((e) => e.control),
             "Control",
@@ -462,8 +462,8 @@ export class HistogramBlockStacked {
     }
   }
 
-  addResult(group, time, litter) {
-    const entry = this.charts.find((c) => c.litter === litter);
+  addResult(group, time, clutch) {
+    const entry = this.charts.find((c) => c.clutch === clutch);
     if (!entry) return;
 
     const nextSpec = growBlockBinsToCoverValue(this.charts, this.binSpec, time, CONFIG.binWidth);
@@ -485,8 +485,8 @@ export class HistogramBlockStacked {
   }
 
   addResultsBatch(records) {
-    for (const { group, time, litter } of records) {
-      const entry = this.charts.find((c) => c.litter === litter);
+    for (const { group, time, clutch } of records) {
+      const entry = this.charts.find((c) => c.clutch === clutch);
       if (!entry) continue;
 
       const nextSpec = growBlockBinsToCoverValue(this.charts, this.binSpec, time, CONFIG.binWidth);
@@ -529,7 +529,7 @@ export class HistogramBlockStacked {
   }
 }
 
-/** Matched pairs: one histogram of (control − drug) per mouse */
+/** Matched pairs: one histogram of (control − drug) per turtle */
 export class HistogramDifference {
   constructor(container) {
     this.mode = "difference";
@@ -550,7 +550,7 @@ export class HistogramDifference {
         labels: this.binSpec.labels,
         datasets: [
           {
-            label: "Mice",
+            label: "Turtles",
             data: this.edges.map(() => 0),
             backgroundColor: "#2563ebcc",
             borderColor: "#2563eb",
@@ -567,7 +567,7 @@ export class HistogramDifference {
           tooltip: {
             callbacks: {
               title: (items) => `Difference: ${items[0]?.label ?? ""}s`,
-              label: (ctx) => `${ctx.parsed.y} mouse${ctx.parsed.y === 1 ? "" : "es"}`,
+              label: (ctx) => `${ctx.parsed.y} turtle${ctx.parsed.y === 1 ? "" : "es"}`,
             },
           },
         },
@@ -781,7 +781,7 @@ export class HistogramRunHistory {
   }
 
   addResultsBatch(records) {}
-  addResult(group, time, litter) {}
+  addResult(group, time, clutch) {}
   addDifference(diff) {}
   addDifferencesBatch(diffs) {}
 

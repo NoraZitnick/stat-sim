@@ -1,49 +1,49 @@
 /**
- * study.js — Mice, group assignment, and the completion-time model.
+ * study.js — Turtles, group assignment, and the completion-time model.
  *
  * This file answers two separate questions:
- *   1. createMice / buildExperiment — WHO runs the maze, and which group
+ *   1. createTurtles / buildExperiment — WHO runs the maze, and which group
  *      (drug or control) each run belongs to. This is the "experimental
  *      design" part — it's where random / block / matched pairs differ.
  *   2. computeRunMetrics — HOW LONG that run takes. Every run's time is one
  *      random draw from a bell curve, nudged by whichever real effects and
- *      confounds apply (drug, litter, practice). The maze itself is just
+ *      confounds apply (drug, clutch, practice). The maze itself is just
  *      for show — pathfinding does not feed back into this number, so the
  *      statistics stay easy to reason about.
  */
 
-import { CONFIG, LITTER_FUR, GROUP_RING, randomNormal, shuffle, round1, mean } from "./config.js";
+import { CONFIG, CLUTCH_FUR, GROUP_RING, randomNormal, shuffle, round1, mean } from "./config.js";
 import { welchTTest, pairedTTest } from "./inference.js";
 
 let currentDiff = 0;
 
-export function createMice(sampleSize) {
-  const mice = [];
+export function createTurtles(sampleSize) {
+  const turtles = [];
   for (let i = 0; i < sampleSize; i++) {
-    const litter = i % CONFIG.numLitters;
-    mice.push({ id: i + 1, litter, fur: LITTER_FUR[litter] });
+    const clutch = i % CONFIG.numClutchs;
+    turtles.push({ id: i + 1, clutch, fur: CLUTCH_FUR[clutch] });
   }
-  return mice;
+  return turtles;
 }
 
 /**
  * Draws this run's completion time from a normal distribution, then applies
  * whichever real effects and confounds apply to this particular run:
- *   - litter shift    → a confound (see CONFIG.litterTimeShift)
+ *   - clutch shift    → a confound (see CONFIG.clutchTimeShift)
  *   - drug effect     → the true effect the study is trying to detect
  *   - practice effect → a confound specific to matched pairs on a reused maze
  * `opts.assignmentType` and `opts.newMazeEachRun` only affect how much NOISE
  * is added (spread), not the mean — that's what makes some designs more
  * reliable than others at revealing the same true drug effect.
  */
-export function computeRunMetrics(mouse, opts) {
+export function computeRunMetrics(turtle, opts) {
   const { hasDrug, isRepeatMaze, assignmentType, newMazeEachRun } = opts;
 
-  const litterShift = CONFIG.litterTimeShift[mouse.litter] ?? 0;
+  const clutchShift = CONFIG.clutchTimeShift[turtle.clutch] ?? 0;
   const mazeSpread = newMazeEachRun ? CONFIG.newMazeSpread : 0;
   const spread = CONFIG.timeStdDev + CONFIG.designTimeSpread[assignmentType] + mazeSpread;
 
-  let time = randomNormal(CONFIG.timeMean, spread) + litterShift;
+  let time = randomNormal(CONFIG.timeMean, spread) + clutchShift;
 
   if (hasDrug) {
     time -= CONFIG.drugTimeReduction + randomNormal(0, CONFIG.drugTimeNoise);
@@ -58,34 +58,34 @@ export function computeRunMetrics(mouse, opts) {
   return { completionTime: round1(time) };
 }
 
-export function buildExperiment(mice, assignmentType) {
+export function buildExperiment(turtles, assignmentType) {
   switch (assignmentType) {
-    case "random": return buildRandomAssignment(mice);
-    case "block": return buildBlockAssignment(mice);
-    case "matched": return buildMatchedPairs(mice);
+    case "random": return buildRandomAssignment(turtles);
+    case "block": return buildBlockAssignment(turtles);
+    case "matched": return buildMatchedPairs(turtles);
     default: throw new Error(`Unknown assignment: ${assignmentType}`);
   }
 }
 
-/** Exactly half the mice get drug (rounded to nearest mouse). */
+/** Exactly half the turtles get drug (rounded to nearest turtle). */
 export function drugGroupCount(total) {
   return Math.round(total / 2);
 }
 
 /**
  * Random assignment: shuffle everyone, then the first half get the drug.
- * Because litter isn't accounted for, a shuffle can (by chance) put more
- * of one litter in one group than the other — that's the confounding this
+ * Because clutch isn't accounted for, a shuffle can (by chance) put more
+ * of one clutch in one group than the other — that's the confounding this
  * design is vulnerable to.
  */
-function buildRandomAssignment(mice) {
-  const shuffled = shuffle([...mice]);
+function buildRandomAssignment(turtles) {
+  const shuffled = shuffle([...turtles]);
   const nDrug = drugGroupCount(shuffled.length);
 
   return shuffle(
-    shuffled.map((mouse, index) => {
+    shuffled.map((turtle, index) => {
       const hasDrug = index < nDrug;
-      return makeRun(mouse, hasDrug, "random", {
+      return makeRun(turtle, hasDrug, "random", {
         phase: 1,
         group: hasDrug ? "drug" : "control",
       });
@@ -94,22 +94,22 @@ function buildRandomAssignment(mice) {
 }
 
 /**
- * Block assignment: shuffle and split each litter separately, so every
- * litter is represented equally in both groups. This is what "blocking"
- * means — the confounding variable (litter) can no longer pile up
+ * Block assignment: shuffle and split each clutch separately, so every
+ * clutch is represented equally in both groups. This is what "blocking"
+ * means — the confounding variable (clutch) can no longer pile up
  * unevenly in one group, whatever else happens.
  */
-function buildBlockAssignment(mice) {
+function buildBlockAssignment(turtles) {
   const runs = [];
-  for (let litter = 0; litter < CONFIG.numLitters; litter++) {
-    const inLitter = mice.filter((m) => m.litter === litter);
-    const shuffled = shuffle([...inLitter]);
+  for (let clutch = 0; clutch < CONFIG.numClutchs; clutch++) {
+    const inClutch = turtles.filter((m) => m.clutch === clutch);
+    const shuffled = shuffle([...inClutch]);
     const nDrug = drugGroupCount(shuffled.length);
 
-    shuffled.forEach((mouse, index) => {
+    shuffled.forEach((turtle, index) => {
       const hasDrug = index < nDrug;
       runs.push(
-        makeRun(mouse, hasDrug, "block", {
+        makeRun(turtle, hasDrug, "block", {
           phase: 1,
           group: hasDrug ? "drug" : "control",
         })
@@ -120,44 +120,44 @@ function buildBlockAssignment(mice) {
 }
 
 /**
- * Matched pairs: every mouse runs TWICE, once with the drug and once
- * without — so each mouse acts as its own control. Whether a given mouse
+ * Matched pairs: every turtle runs TWICE, once with the drug and once
+ * without — so each turtle acts as its own control. Whether a given turtle
  * gets the drug first or second is randomized, so any practice/order
  * effect (see learningTimeReduction) isn't stacked onto one group.
  */
-function buildMatchedPairs(mice) {
-  const shuffled = shuffle([...mice]);
+function buildMatchedPairs(turtles) {
+  const shuffled = shuffle([...turtles]);
   const half = Math.floor(shuffled.length / 2);
   const runs = [];
 
-  shuffled.forEach((mouse, index) => {
+  shuffled.forEach((turtle, index) => {
     const drugFirst = index < half;
     if (drugFirst) {
-      runs.push(makeRun(mouse, true, "matched", { phase: 1, group: "drug", pairOrder: "drug-first" }));
-      runs.push(makeRun(mouse, false, "matched", { phase: 2, group: "control", pairOrder: "drug-first" }));
+      runs.push(makeRun(turtle, true, "matched", { phase: 1, group: "drug", pairOrder: "drug-first" }));
+      runs.push(makeRun(turtle, false, "matched", { phase: 2, group: "control", pairOrder: "drug-first" }));
     } else {
-      runs.push(makeRun(mouse, false, "matched", { phase: 1, group: "control", pairOrder: "control-first" }));
-      runs.push(makeRun(mouse, true, "matched", { phase: 2, group: "drug", pairOrder: "control-first" }));
+      runs.push(makeRun(turtle, false, "matched", { phase: 1, group: "control", pairOrder: "control-first" }));
+      runs.push(makeRun(turtle, true, "matched", { phase: 2, group: "drug", pairOrder: "control-first" }));
     }
   });
 
   return runs;
 }
 
-function makeRun(mouse, hasDrug, assignmentType, meta) {
+function makeRun(turtle, hasDrug, assignmentType, meta) {
   return {
-    mouse,
+    turtle,
     hasDrug,
     assignmentType,
     ringColor: hasDrug ? GROUP_RING.drug : GROUP_RING.control,
-    fur: mouse.fur,
+    fur: turtle.fur,
     ...meta,
   };
 }
 
 /**
  * Batch runs for animation.
- * Shared maze (toggle off): all mice together; matched = phase 1 batch then phase 2 batch.
+ * Shared maze (toggle off): all turtles together; matched = phase 1 batch then phase 2 batch.
  */
 export function groupRunBatches(runs, assignmentType, randomMazeEachRun) {
   if (!randomMazeEachRun) {
@@ -173,7 +173,7 @@ export function groupRunBatches(runs, assignmentType, randomMazeEachRun) {
 
 export function getMazeKey(run, assignmentType, randomMazeEachRun) {
   if (randomMazeEachRun) {
-    return `run-${run.mouse.id}-${run.phase ?? 1}-${Math.random().toString(36).slice(2, 9)}`;
+    return `run-${run.turtle.id}-${run.phase ?? 1}-${Math.random().toString(36).slice(2, 9)}`;
   }
   return "shared-maze";
 }
@@ -186,22 +186,22 @@ export function usesMatchedDifference(assignmentType) {
   return assignmentType === "matched";
 }
 
-/** Splits records into one { litter, controlTimes, drugTimes } bucket per litter. */
-function groupRecordsByLitter(records) {
+/** Splits records into one { clutch, controlTimes, drugTimes } bucket per clutch. */
+function groupRecordsByClutch(records) {
   const groups = [];
-  for (let litter = 0; litter < CONFIG.numLitters; litter++) {
-    const litterRecords = records.filter((r) => r.litter === litter);
+  for (let clutch = 0; clutch < CONFIG.numClutchs; clutch++) {
+    const clutchRecords = records.filter((r) => r.clutch === clutch);
     groups.push({
-      litter,
-      controlTimes: litterRecords.filter((r) => r.group === "control").map((r) => r.time),
-      drugTimes: litterRecords.filter((r) => r.group === "drug").map((r) => r.time),
+      clutch,
+      controlTimes: clutchRecords.filter((r) => r.group === "control").map((r) => r.time),
+      drugTimes: clutchRecords.filter((r) => r.group === "drug").map((r) => r.time),
     });
   }
   return groups;
 }
 
-function litterName(litter) {
-  return LITTER_FUR[litter]?.name ?? `Litter ${litter + 1}`;
+function clutchName(clutch) {
+  return CLUTCH_FUR[clutch]?.name ?? `Clutch ${clutch + 1}`;
 }
 
 export function summarizeResults(records, assignmentType, randomMazeEachRun) {
@@ -222,17 +222,17 @@ export function summarizeResults(records, assignmentType, randomMazeEachRun) {
   }
 
   if (assignmentType === "block") {
-    // Litter is the confound block assignment controls for, so the summary
-    // reports drug/control means and the difference separately PER LITTER —
+    // Clutch is the confound block assignment controls for, so the summary
+    // reports drug/control means and the difference separately PER CLUTCH —
     // pooling them together would hide exactly the thing blocking fixes.
-    const byLitter = groupRecordsByLitter(records);
-    const parts = byLitter
+    const byClutch = groupRecordsByClutch(records);
+    const parts = byClutch
       .filter(({ controlTimes, drugTimes }) => controlTimes.length > 0 && drugTimes.length > 0)
-      .map(({ litter, controlTimes, drugTimes }) => {
+      .map(({ clutch, controlTimes, drugTimes }) => {
         const drugMean = round1(mean(drugTimes));
         const controlMean = round1(mean(controlTimes));
         currentDiff = round1(controlMean - drugMean);
-        return `${litterName(litter)} Control Mean - Drug Mean: ${currentDiff}s`;
+        return `${clutchName(clutch)} Control Mean - Drug Mean: ${currentDiff}s`;
       });
 
     return parts.length > 0 ? parts.join("\n") : "Waiting for data…";
@@ -266,16 +266,16 @@ function formatPValue(p) {
 /**
  * How likely the observed difference is under pure chance (no real drug effect):
  * a Welch two-sample t-test for random/matched pairs (paired) — and, for block
- * assignment, one Welch t-test PER LITTER, combined across litters:
- *   - If every litter's difference points the SAME direction (drug faster in
+ * assignment, one Welch t-test PER CLUTCH, combined across clutchs:
+ *   - If every clutch's difference points the SAME direction (drug faster in
  *     both, or drug slower in both), that's reinforcing evidence, so the
- *     combined probability is the product of the per-litter p-values (the
+ *     combined probability is the product of the per-clutch p-values (the
  *     chance BOTH happen together by chance).
- *   - If litters DISAGREE on direction (drug looked faster in one litter and
+ *   - If clutchs DISAGREE on direction (drug looked faster in one clutch and
  *     slower in the other), that's contradictory evidence, not reinforcing
  *     evidence — multiplying would overstate how sure we are. Instead each
- *     litter's confidence (1 − p) is signed by its direction and averaged,
- *     so the litters partially cancel each other out rather than compound.
+ *     clutch's confidence (1 − p) is signed by its direction and averaged,
+ *     so the clutchs partially cancel each other out rather than compound.
  */
 export function describeSignificance(records, assignmentType) {
   if (assignmentType === "matched") {
@@ -286,19 +286,19 @@ export function describeSignificance(records, assignmentType) {
   }
 
   if (assignmentType === "block") {
-    const byLitter = groupRecordsByLitter(records);
-    const results = byLitter.map(({ litter, controlTimes, drugTimes }) => {
+    const byClutch = groupRecordsByClutch(records);
+    const results = byClutch.map(({ clutch, controlTimes, drugTimes }) => {
       if (controlTimes.length < 2 || drugTimes.length < 2) return null;
       const result = welchTTest(drugTimes, controlTimes);
-      return result ? { litter, p: result.p, t: result.t } : null;
+      return result ? { clutch, p: result.p, t: result.t } : null;
     });
 
     if (results.some((r) => r === null)) {
-      return "P = — (need at least 2 mice per group in each litter to compute)";
+      return "P = — (need at least 2 turtles per group in each clutch to compute)";
     }
 
-    const perLitterText = results
-      .map(({ litter, p }) => `${litterName(litter)}: ${formatPValue(p)}`)
+    const perClutchText = results
+      .map(({ clutch, p }) => `${clutchName(clutch)}: ${formatPValue(p)}`)
       .join("\n");
 
     const nonZeroSigns = results.map((r) => Math.sign(r.t)).filter((s) => s !== 0);
@@ -312,12 +312,12 @@ export function describeSignificance(records, assignmentType) {
       const signedConfidence =
         results.reduce((sum, r) => sum + Math.sign(r.t) * (1 - r.p), 0) / results.length;
       combinedP = 1 - Math.abs(signedConfidence);
-      combinedNote = " (litters disagree on direction, so their evidence partially cancels instead of compounding)";
+      combinedNote = " (clutchs disagree on direction, so their evidence partially cancels instead of compounding)";
     }
     const combinedClamped = Math.max(0, Math.min(1, combinedP));
 
     return (
-      `${perLitterText} ` +
+      `${perClutchText} ` +
       `\nCombined probability: ${formatPValue(combinedClamped)}${combinedNote}`
     );
   }
@@ -325,7 +325,7 @@ export function describeSignificance(records, assignmentType) {
   const controlTimes = records.filter((r) => r.group === "control").map((r) => r.time);
   const drugTimes = records.filter((r) => r.group === "drug").map((r) => r.time);
   if (controlTimes.length < 2 || drugTimes.length < 2) {
-    return "P = — (need at least 2 mice per group to compute)";
+    return "P = — (need at least 2 turtles per group to compute)";
   }
   const result = welchTTest(drugTimes, controlTimes);
   return result ? formatPValue(result.p) : "";
@@ -342,7 +342,7 @@ export function getChartLabels(assignmentType, randomMazeEachRun) {
   if (assignmentType === "matched") {
     const mazeNote = randomMazeEachRun
       ? "Each run uses a new maze."
-      : "All mice run together on the same maze — 2nd phase is faster from practice.";
+      : "All turtles run together on the same maze — 2nd phase is faster from practice.";
     return {
       mode: "difference",
       caption: "",

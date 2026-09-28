@@ -2,14 +2,14 @@
  * maze.js — Maze generation, "smart wandering" exploration, and drawing.
  *
  * Nothing in this file affects the statistics. It only decides what path a
- * mouse's sprite walks and how long that walk visually takes (which is set
+ * turtle's sprite walks and how long that walk visually takes (which is set
  * to match the completion time computed in study.js). You could delete the
  * whole animation and the experiment's conclusions wouldn't change — that
  * separation is intentional, and it's what keeps the math in study.js easy
  * to reason about.
  */
 
-import { CONFIG } from "./config.js";
+import { CONFIG, GROUP_RING } from "./config.js";
 
 function createEmptyGrid(cols, rows) {
   const grid = [];
@@ -145,10 +145,10 @@ function pickNextCell(grid, cx, cy, end, visited, blocked, previous = null) {
 
 /**
  * Explore maze: random turns at junctions, backtrack at dead ends,
- * never re-enter blocked branches. With knownCells, mouse takes a direct route (learned maze).
+ * never re-enter blocked branches. With knownCells, turtle takes a direct route (learned maze).
  *
  * `CONFIG.maxExploreSteps` is a safety cap, not a tuning knob for realism —
- * if wandering ever ran away for one mouse, it would freeze the browser tab
+ * if wandering ever ran away for one turtle, it would freeze the browser tab
  * for everyone. If the cap is ever hit, we just fall back to the guaranteed
  * BFS shortest path below, so lowering the cap only ever makes this safer.
  */
@@ -237,12 +237,12 @@ export function drawMazeBackground(ctx, grid, options = {}) {
   const height = padding * 2 + rows * cellSize;
 
   ctx.clearRect(0, 0, width, height);
-  ctx.fillStyle = "#fafafa";
+  ctx.fillStyle = "#accfff";
   ctx.fillRect(0, 0, width, height);
 
-  ctx.fillStyle = "rgba(34, 197, 94, 0.25)";
+  ctx.fillStyle = "rgba(34, 197, 94, 0.73)";
   ctx.fillRect(padding, padding, cellSize, cellSize);
-  ctx.fillStyle = "rgba(239, 68, 68, 0.25)";
+  ctx.fillStyle = "rgba(239, 68, 68, 0.73)";
   ctx.fillRect(
     padding + (cols - 1) * cellSize,
     padding + (rows - 1) * cellSize,
@@ -268,75 +268,190 @@ export function drawMazeBackground(ctx, grid, options = {}) {
   }
 }
 
-/** Full maze draw: background + every mouse sprite. Fine for one-off draws; the animation loop below avoids re-running the background half of this every frame. */
+/** Full maze draw: background + every turtle sprite. Fine for one-off draws; the animation loop below avoids re-running the background half of this every frame. */
 export function drawMaze(ctx, grid, options = {}) {
   drawMazeBackground(ctx, grid, options);
-  for (const mouse of options.mice ?? []) {
-    drawMouseSprite(ctx, mouse);
+  for (const turtle of options.turtles ?? []) {
+    drawTurtleSprite(ctx, turtle);
   }
 }
 
-export function drawMouseSprite(ctx, { px, py, angle, fur, hasDrug, finished }) {
+export function drawTurtleSprite(ctx, { px, py, angle, fur, hasDrug, finished }) {
   if (finished) return;
+const shellColor = fur.fur;
+const darker = fur.tail;
+const headColor = fur.ear;
+const shellSpot = fur.nose;
 
+ctx.save();
+ctx.translate(px, py);
+ctx.rotate(angle);
+
+// A little smaller than the original sprite
+ctx.scale(0.5, 0.5);
+
+// --------------------
+// Flippers
+// --------------------
+const drawBackFlipper = (x, y, rotation, scale, flipX = 1) => {
   ctx.save();
-  ctx.translate(px, py);
-  ctx.rotate(angle);
-  ctx.scale(0.95, 0.95);
+  ctx.translate(x, y);
+  ctx.rotate(rotation);
+  ctx.scale(flipX*scale, scale);
 
-  ctx.strokeStyle = fur.tail;
-  ctx.lineWidth = 2.5;
-  ctx.lineCap = "round";
+  ctx.fillStyle = headColor;
+  ctx.strokeStyle = darker;
+  ctx.lineWidth = 1.1;
+
   ctx.beginPath();
-  ctx.moveTo(-11, 0);
-  ctx.quadraticCurveTo(-18, 4, -22, 10);
+  ctx.moveTo(0, 0);
+  ctx.quadraticCurveTo(5, -4.5, 12, -3.5);
+  ctx.quadraticCurveTo(16, -1, 14, 2.5);
+  ctx.quadraticCurveTo(10, 6, 4, 5.5);
+  ctx.quadraticCurveTo(1, 4, 0, 0);
+  ctx.closePath();
+
+  ctx.fill();
   ctx.stroke();
-
-  ctx.fillStyle = fur.fur;
-  ctx.beginPath();
-  ctx.ellipse(0, 0, 10, 7, 0, 0, Math.PI * 2);
-  ctx.fill();
-
-  ctx.fillStyle = fur.belly;
-  ctx.beginPath();
-  ctx.ellipse(2, 1, 5, 3.5, 0, 0, Math.PI * 2);
-  ctx.fill();
-
-  ctx.fillStyle = fur.fur;
-  ctx.beginPath();
-  ctx.arc(9, 0, 5.5, 0, Math.PI * 2);
-  ctx.fill();
-
-  ctx.fillStyle = fur.ear;
-  ctx.beginPath();
-  ctx.arc(7, -5, 3, 0, Math.PI * 2);
-  ctx.arc(7, 5, 3, 0, Math.PI * 2);
-  ctx.fill();
-
-  ctx.fillStyle = fur.nose;
-  ctx.beginPath();
-  ctx.arc(13.5, 0, 1.2, 0, Math.PI * 2);
-  ctx.fill();
-
-  ctx.strokeStyle = hasDrug ? "#16a34a" : "#94a3b8";
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.arc(4, 0, 6.5, -0.8, 0.8);
-  ctx.stroke();
-
   ctx.restore();
+};
+const drawFrontFlipper = (x, y, rotation, scale, flipX = 1, flipY = 1) => {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(rotation);
+  ctx.scale(flipX*scale, flipY*scale);
+
+  ctx.fillStyle = headColor;
+  ctx.strokeStyle = darker;
+  ctx.lineWidth = 1.1;
+
+  ctx.beginPath();
+  ctx.moveTo(0, 0);
+  ctx.quadraticCurveTo(5, 4.5, 12, -3.5);
+  ctx.quadraticCurveTo(16, -1, 14, 2.5);
+  ctx.quadraticCurveTo(10, 6, 4, 5.5);
+  ctx.quadraticCurveTo(1, 4, 0, 0);
+  ctx.closePath();
+
+  ctx.fill();
+  ctx.stroke();
+  ctx.restore();
+};
+// Front flippers — larger
+drawFrontFlipper(8, -11, -0.45, 1.5,  1, 1);
+drawFrontFlipper(8, 11, 0.45, 1.5,  1, -1);
+
+// Rear flippers — smaller
+drawBackFlipper(-10, -10, 0.55, 1, -1);
+drawBackFlipper(-10, 10, -0.55, 1, -1);
+
+// --------------------
+// Tail
+// --------------------
+ctx.fillStyle = darker;
+
+ctx.beginPath();
+ctx.moveTo(-15, -3.2);
+ctx.lineTo(-15, 3.2);
+ctx.lineTo(-23, 0);
+ctx.closePath();
+ctx.fill();
+
+// --------------------
+// Main shell
+// --------------------
+ctx.fillStyle = shellColor;
+ctx.strokeStyle = darker;
+ctx.lineWidth = 1.5;
+
+ctx.beginPath();
+ctx.ellipse(0, 0, 17, 13.5, 0, 0, Math.PI * 2);
+ctx.fill();
+ctx.stroke();
+
+// --------------------
+// Shell scute pattern
+// --------------------
+ctx.strokeStyle = darker;
+ctx.lineWidth = 1;
+ctx.globalAlpha = 0.8;
+
+ctx.beginPath();
+
+// Top and bottom shell divisions
+ctx.moveTo(-8, -10);
+ctx.quadraticCurveTo(0, -13, 8, -10);
+
+ctx.moveTo(-8, 10);
+ctx.quadraticCurveTo(0, 13, 8, 10);
+
+// Vertical divisions
+ctx.moveTo(-5, -12);
+ctx.quadraticCurveTo(-2, 0, -5, 12);
+
+ctx.moveTo(0, -13);
+ctx.quadraticCurveTo(0, 0, 0, 13);
+
+ctx.moveTo(5, -12);
+ctx.quadraticCurveTo(2, 0, 5, 12);
+
+ctx.stroke();
+
+// Curved central scute divisions
+ctx.beginPath();
+ctx.arc(0, 0, 8, Math.PI * 0.18, Math.PI * 0.82);
+ctx.arc(0, 0, 8, Math.PI * 1.18, Math.PI * 1.82);
+ctx.stroke();
+
+ctx.globalAlpha = 1;
+
+// --------------------
+// Neck
+// --------------------
+ctx.fillStyle = headColor;
+ctx.strokeStyle = darker;
+ctx.lineWidth = 1;
+
+ctx.beginPath();
+ctx.roundRect(14, -4.3, 8, 8.6, 3);
+ctx.fill();
+ctx.stroke();
+
+// --------------------
+// Head
+// --------------------
+ctx.beginPath();
+ctx.ellipse(23, 0, 6.5, 5.4, 0, 0, Math.PI * 2);
+ctx.fill();
+ctx.stroke();
+
+// --------------------
+// Drug/control status
+// Orange = drugged
+// Gray = not drugged
+// --------------------
+ctx.fillStyle = hasDrug ? GROUP_RING.drug : GROUP_RING.control;
+ctx.strokeStyle = "#394234";
+ctx.lineWidth = 1;
+
+ctx.beginPath();
+ctx.arc(0, 0, 6, 0, Math.PI * 2);
+ctx.fill();
+ctx.stroke();
+
+ctx.restore();
 }
 
 /**
- * Animates every runner's mouse sprite along its path at a speed matched to
- * its completion time, calling `onRunnerFinish` with the batch of mice that
+ * Animates every runner's turtle sprite along its path at a speed matched to
+ * its completion time, calling `onRunnerFinish` with the batch of turtles that
  * crossed the finish line on each frame (usually zero or one, but can be
  * many at once with a large shared-maze sample).
  *
  * Two things here specifically target low-power laptops (Chromebooks):
- *   1. Each mouse's path is converted to pixel coordinates ONCE, up front,
+ *   1. Each turtle's path is converted to pixel coordinates ONCE, up front,
  *      instead of being recomputed on every single animation frame — with
- *      dozens of mice on screen at 60fps that recomputation was the actual
+ *      dozens of turtles on screen at 60fps that recomputation was the actual
  *      bottleneck.
  *   2. The maze's walls are drawn to an offscreen canvas ONCE and then
  *      copied into place each frame with a single fast image blit, instead
@@ -405,7 +520,7 @@ export function animateMazeRuns(canvas, grid, runners, options = {}) {
       for (const s of states) {
         if (s.progress <= 0 || s.finished) continue;
         const pos = getPathPosition(s.pixels, s.progress);
-        drawMouseSprite(ctx, { px: pos.px, py: pos.py, angle: pos.angle, fur: s.fur, hasDrug: s.hasDrug, finished: false });
+        drawTurtleSprite(ctx, { px: pos.px, py: pos.py, angle: pos.angle, fur: s.fur, hasDrug: s.hasDrug, finished: false });
       }
 
       if (justFinished.length > 0) onRunnerFinish(justFinished);
