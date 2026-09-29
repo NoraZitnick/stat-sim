@@ -203,6 +203,15 @@ export function usesMatchedDifference(assignmentType) {
   return assignmentType === "matched";
 }
 
+export function getBlockDifferences(records) {
+  return groupRecordsByBlock(records)
+    .filter(({ controlTimes, drugTimes }) => controlTimes.length > 0 && drugTimes.length > 0)
+    .map(({ block, controlTimes, drugTimes }) => ({
+      block,
+      difference: round1(mean(controlTimes) - mean(drugTimes)),
+    }));
+}
+
 /** Splits records into one { block, controlTimes, drugTimes } bucket per block. */
 function groupRecordsByBlock(records) {
   const groups = [];

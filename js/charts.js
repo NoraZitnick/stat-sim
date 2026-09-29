@@ -14,7 +14,7 @@
  * otherwise have to compute by hand from the bars.
  */
 
-import { CONFIG, BLOCK_FUR, GROUP_COLORS, mean, round1, stdDev } from "./config.js";
+import { CONFIG, getCreatureBlocks, GROUP_COLORS, mean, round1, stdDev } from "./config.js";
 
 let max_count = 0;
 
@@ -389,13 +389,13 @@ export class HistogramStacked {
 
 /** Four block-specific histograms, each with separate drug/control panels */
 export class HistogramBlockStacked {
-  constructor(container, colors = GROUP_COLORS.mouse) {
+  constructor(container, colors = GROUP_COLORS.mouse, creature = "mouse") {
     this.mode = "block";
     this.binSpec = makeTimeBins();
     container.className = "charts-grid charts-grid--4";
 
-    this.blocks = BLOCK_FUR.map((fur, i) => {
-      return { block: i, name: fur.name };
+    this.blocks = getCreatureBlocks(creature).map((entry, i) => {
+      return { block: i, name: entry.name };
     });
 
     // Laid out as a 2x2 grid in DOM order (grid auto-placement fills left-to-right,
@@ -664,118 +664,129 @@ export class HistogramDifference {
 }
 
 export class HistogramRunHistory {
-  constructor(container, records = [[], [], []], assignmentType) {
+  constructor(container, records = [[], [], []], assignmentType, creature = "mouse") {
     this.mode = "multi-run";
-    records;
-    this.binSpec = makeDiffBins(
-      CONFIG.diffBinMin,
-      CONFIG.diffBinMax,
-      CONFIG.diffBinWidthMultiGraph
-    );
-    this.edges = this.binSpec.edges.map((e) => ({ ...e, count: 0 }));
-    this.rawDiffs = [];
+    this.container = container;
+    this.charts = [];
+    this.setAssignment(assignmentType, creature);
+    this.syncFromRecords(records, assignmentType, creature);
+  }
 
-    container.className = "charts-grid charts-grid--1";
-    container.innerHTML = `
+  setAssignment(assignmentType, creature = this.creature) {
+    if (this.assignmentType === assignmentType && this.creature === creature) return;
+    this.charts.forEach(({ chart }) => chart.destroy());
+    this.assignmentType = assignmentType;
+    this.creature = creature;
+    const blocks = assignmentType === "block" ? getCreatureBlocks(creature) : null;
+    const entries = blocks
+      ? blocks.map((entry, block) => ({ block, title: `${entry.name} block differences` }))
+      : [{ block: null, title: "Recorded run differences" }];
+
+    this.container.className = `charts-grid charts-grid--${entries.length}`;
+    this.container.innerHTML = entries.map((entry, index) => `
       <div class="chart-box chart-box--wide">
         ${infoIconMarkup()}
-        <h3>Recorded run differences</h3>
-        <canvas id="chart-run-history"></canvas>
+        <h3>${entry.title}</h3>
+        <canvas id="chart-run-history-${index}"></canvas>
       </div>
-    `;
+    `).join("");
 
-    this.chart = new Chart(container.querySelector("#chart-run-history"), {
-      type: "bar",
-      data: {
-        labels: this.binSpec.labels,
-        datasets: [
-          {
+    this.charts = entries.map((entry, index) => {
+      const binSpec = makeDiffBins(
+        CONFIG.diffBinMin,
+        CONFIG.diffBinMax,
+        CONFIG.diffBinWidthMultiGraph
+      );
+      const edges = binSpec.edges.map((edge) => ({ ...edge, count: 0 }));
+      const chart = new Chart(this.container.querySelector(`#chart-run-history-${index}`), {
+        type: "bar",
+        data: {
+          labels: binSpec.labels,
+          datasets: [{
             label: "Frequency",
-            data: this.edges.map(() => 0),
+            data: edges.map(() => 0),
             backgroundColor: "#2563ebcc",
             borderColor: "#2563eb",
             borderWidth: 1,
+          }],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          animation: { duration: 200 },
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              callbacks: {
+                title: (items) => `Difference: ${items[0]?.label ?? ""}s`,
+                label: (ctx) => `${ctx.parsed.y} run${ctx.parsed.y === 1 ? "" : "s"}`,
+              },
+            },
           },
-        ],
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        animation: { duration: 200 },
-        plugins: {
-          legend: { display: false },
-          tooltip: {
-            callbacks: {
-              title: (items) => `Difference: ${items[0]?.label ?? ""}s`,
-              label: (ctx) => `${ctx.parsed.y} run${ctx.parsed.y === 1 ? "" : "s"}`,
+          scales: {
+            x: {
+              title: { display: true, text: "Difference (s)" },
+              ticks: { maxRotation: 0, minRotation: 0, autoSkip: true, maxTicksLimit: 8, font: { size: 9 } },
+            },
+            y: {
+              beginAtZero: true,
+              ticks: { stepSize: 1, font: { size: 9 } },
+              title: { display: true, text: "Frequency" },
             },
           },
         },
-        scales: {
-          x: {
-            title: { display: true, text: "Difference (s)" },
-            ticks: { maxRotation: 0, minRotation: 0, autoSkip: true, maxTicksLimit: 8, font: { size: 9 } },
-          },
-          y: {
-            beginAtZero: true,
-            ticks: { stepSize: 1, font: { size: 9 } },
-            title: { display: true, text: "Frequency" },
-          },
-        },
-      },
+      });
+      return { ...entry, binSpec, edges, rawDiffs: [], chart };
     });
-
-    this.syncFromRecords(records, assignmentType);
   }
 
-  syncFromRecords(records, assignmentType) {
-    const allDiffs = records[assignmentType === "random" ? 0 : assignmentType === "block" ? 1 : 2].slice(1);
+  syncFromRecords(records, assignmentType = this.assignmentType, creature = this.creature) {
+    this.setAssignment(assignmentType, creature);
+    const runRecords = records[assignmentType === "random" ? 0 : assignmentType === "block" ? 1 : 2].slice(1);
 
-    this.rawDiffs = allDiffs;
-    let workingEdges = this.binSpec.edges.map((e) => ({ ...e, count: 0 }));
-    let workingSpec = this.binSpec;
+    for (const state of this.charts) {
+      const values = state.block === null
+        ? runRecords
+        : runRecords.flatMap((run) => run
+          .filter((entry) => entry.block === state.block)
+          .map((entry) => entry.difference));
+      state.rawDiffs = values;
 
-    for (const diff of allDiffs) {
-      const expanded = expandBinsToCoverValue(
-        workingEdges,
-        workingSpec,
-        diff,
-        CONFIG.diffBinWidthMultiGraph,
-        (binMin, binMax) => makeDiffBins(binMin, binMax, CONFIG.diffBinWidthMultiGraph),
-        (slot, existing) => ({
-          ...slot,
-          count: existing ? existing.count : 0,
-        })
-      );
-      workingEdges = expanded.edges;
-      workingSpec = { labels: expanded.labels, edges: expanded.edges };
+      let workingEdges = state.binSpec.edges.map((edge) => ({ ...edge, count: 0 }));
+      let workingSpec = state.binSpec;
+      for (const diff of values) {
+        const expanded = expandBinsToCoverValue(
+          workingEdges,
+          workingSpec,
+          diff,
+          CONFIG.diffBinWidthMultiGraph,
+          (binMin, binMax) => makeDiffBins(binMin, binMax, CONFIG.diffBinWidthMultiGraph),
+          (slot, existing) => ({ ...slot, count: existing ? existing.count : 0 })
+        );
+        workingEdges = expanded.edges;
+        workingSpec = { labels: expanded.labels, edges: expanded.edges };
+        workingEdges[valueToBinIndex(workingEdges, diff)].count += 1;
+      }
 
-      const idx = valueToBinIndex(workingEdges, diff);
-      workingEdges[idx].count += 1;
+      state.binSpec = workingSpec;
+      state.edges = workingEdges;
+      state.chart.data.labels = workingSpec.labels;
+      state.chart.data.datasets[0].data = workingEdges.map((edge) => edge.count);
+      updateChart(state.chart);
+      this.updateStats(state);
     }
-
-    this.binSpec = workingSpec;
-    this.edges = workingEdges;
-    this.chart.data.labels = this.binSpec.labels;
-    this.chart.data.datasets[0].data = this.edges.map((e) => e.count);
-    updateChart(this.chart);
-    this.updateStats();
   }
 
-
-  updateStats() {
-    setInfoTooltip(
-      this.chart.canvas.closest(".chart-box"),
-      `n = ${this.rawDiffs.length}\nMean = ${round1(mean(this.rawDiffs))}s\nSD = ${round1(stdDev(this.rawDiffs))}s`
-    );
+  updateStats(state) {
+    setInfoTooltip(state.chart.canvas.closest(".chart-box"), formatStats(state.rawDiffs));
   }
 
   reset() {
-    this.syncFromRecords([[0], [0], [0]], "");
+    this.syncFromRecords([[], [], []], this.assignmentType, this.creature);
   }
 
   destroy() {
-    this.chart.destroy();
+    this.charts.forEach(({ chart }) => chart.destroy());
   }
 
   addResultsBatch(records) {}
@@ -786,9 +797,9 @@ export class HistogramRunHistory {
 }
 
 export function createChartManager(assignmentType, container, mode = "run", diffRecords = [[], [], []], creature = "mouse") {
-  if (mode === "multi") return new HistogramRunHistory(container, diffRecords, assignmentType);
+  if (mode === "multi") return new HistogramRunHistory(container, diffRecords, assignmentType, creature);
   const colors = GROUP_COLORS[creature] ?? GROUP_COLORS.mouse;
-  if (assignmentType === "block") return new HistogramBlockStacked(container, colors);
+  if (assignmentType === "block") return new HistogramBlockStacked(container, colors, creature);
   if (assignmentType === "matched") return new HistogramDifference(container);
   return new HistogramStacked(container, colors);
 }

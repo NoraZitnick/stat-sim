@@ -434,7 +434,7 @@ fieldset.field {
 }
 
 .charts-grid--2 {
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr;
 }
 
 /* Block assignment: 2x2 grid — top row is drug (block 0, block 1), bottom

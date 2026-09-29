@@ -155,6 +155,12 @@ export const ANT_COLONIES = [
   { color: "#8B5E3C", name: "Brown" },
 ];
 
+export function getCreatureBlocks(creature = "mouse") {
+  if (creature === "turtle") return TURTLE_SHELLS;
+  if (creature === "ant") return ANT_COLONIES;
+  return BLOCK_FUR.map(({ fur, name }) => ({ color: fur, name }));
+}
+
 export const GROUP_COLORS = {
   mouse: { control: "#000000", drug: "#16a34a" },
   turtle: { control: "#9CA3AF", drug: "#F97316" },

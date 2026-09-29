@@ -2,7 +2,7 @@
  * app.js — Main controller
  */
 
-import { CONFIG, BLOCK_FUR, TURTLE_SHELLS, ANT_COLONIES, GROUP_COLORS, round1 } from "./config.js";
+import { CONFIG, getCreatureBlocks, GROUP_COLORS, round1 } from "./config.js";
 import {
   exploreMazePath,
   fitCanvas,
@@ -17,6 +17,7 @@ import {
   getMazeKey,
   groupRunBatches,
   summarizeResults,
+  getBlockDifferences,
   describeSignificance,
   getChartLabels,
   usesBlockCharts,
@@ -285,6 +286,7 @@ function updateChartButtons() {
 
 function setupCharts(assignmentType, newMazeEachRun) {
   if (chartMode === "multi" && histograms instanceof HistogramRunHistory) {
+    histograms.setAssignment(assignmentType, getCreatureOption().singular);
     chartCaption.textContent = "";
     chartCaption.style.display = "block";
     renderRunCountBox();
@@ -609,9 +611,11 @@ async function runSimulation(fastMode = false) {
   if (diffRecords[index][0] !== sampleSize) {
     diffRecords[index] = [sampleSize];
   }
-  diffRecords[index].push(getCurrentDiff());
+  diffRecords[index].push(
+    assignmentType === "block" ? getBlockDifferences(finishedRecords) : getCurrentDiff()
+  );
   if (chartMode === "multi") {
-    histograms.syncFromRecords(diffRecords, assignmentType);
+    histograms.syncFromRecords(diffRecords, assignmentType, getCreatureOption().singular);
   }
   console.log("All diffs recorded:", diffRecords);
   setControlsEnabled(true);
@@ -718,11 +722,7 @@ function buildBlockLegend() {
   const list = document.getElementById("block-legend");
   const option = getCreatureOption();
   const groupLabel = option.groupingLabel;
-  const entries = option.singular === "turtle"
-    ? TURTLE_SHELLS
-    : option.singular === "ant"
-      ? ANT_COLONIES
-      : BLOCK_FUR.map((fur) => ({ color: fur.fur, name: fur.name }));
+  const entries = getCreatureBlocks(option.singular);
   list.innerHTML = entries.map(
     (entry, i) =>
       `<li><span class="swatch fur" style="background:${entry.color}"></span> ${groupLabel} ${i + 1} — ${entry.name}</li>`
