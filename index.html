@@ -13,6 +13,18 @@
     <h1>Maze Mouse Drug Study</h1>
   </header>
 
+  <div id="creature-modal" class="creature-modal" role="dialog" aria-modal="true" aria-labelledby="creature-modal-title">
+    <div class="creature-modal__panel">
+      <h2 id="creature-modal-title">Choose the creature in this experiment</h2>
+      <p>Pick the species you want to use for the maze study.</p>
+      <div class="creature-option-list" aria-label="Choose creature type">
+        <button type="button" class="creature-option" data-creature="mice">Mice</button>
+        <button type="button" class="creature-option" data-creature="turtles">Turtles</button>
+        <button type="button" class="creature-option" data-creature="ants">Ants</button>
+      </div>
+    </div>
+  </div>
+
   <main class="layout">
     <!-- Sidebar: settings and study design selection -->
     <aside class="sidebar">
@@ -20,7 +32,7 @@
         <h2>Settings</h2>
 
         <label class="field">
-          <span>Sample size (number of mice)</span>
+          <span id="sample-size-label">Sample size (number of mice)</span>
           <input type="number" id="sample-size" min="4" max="300" value="20" step="2" />
           <small>Use the Fast forward button below to skip the animation.</small>
         </label>
@@ -43,7 +55,7 @@
           <label class="radio">
             <input type="radio" name="assignment" value="block" />
             <span>
-              <strong>Block assignment (by litter)</strong>
+              <strong id="block-assignment-label">Block assignment (by block)</strong>
             </span>
           </label>
 
@@ -79,10 +91,10 @@
         <h2>Legend</h2>
         <div class="legend-grid">
           <ul class="legend-list legend-col" id="legend-list">
-            <li><span class="swatch collar-control"></span> Gray collar = control</li>
-            <li><span class="swatch collar-drug"></span> Green collar = drug</li>
+            <li><span id="control-marking-swatch" class="swatch collar-control"></span> <span id="control-marking-label">Gray collar = control</span></li>
+            <li><span id="drug-marking-swatch" class="swatch collar-drug"></span> <span id="drug-marking-label">Green collar = drug</span></li>
           </ul>
-          <ul class="legend-list legend-col" id="litter-legend"></ul>
+          <ul class="legend-list legend-col" id="block-legend"></ul>
         </div>
       </section>
     </section>
@@ -95,7 +107,7 @@
       </section>
       <h2>Completion times (seconds)</h2>
       <p id="chart-caption" class="chart-caption">
-        Histograms update as each mouse finishes.
+        Histograms update as each individual finishes.
       </p>
       <div class="charts-grid" id="charts-grid"></div>
       <p id="summary" class="summary"></p>

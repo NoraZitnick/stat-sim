@@ -2,7 +2,7 @@
  * app.js — Main controller
  */
 
-import { CONFIG, LITTER_FUR, round1 } from "./config.js";
+import { CONFIG, BLOCK_FUR, TURTLE_SHELLS, ANT_COLONIES, GROUP_COLORS, round1 } from "./config.js";
 import {
   exploreMazePath,
   fitCanvas,
@@ -11,7 +11,7 @@ import {
   createMazeBundle,
 } from "./maze.js";
 import {
-  createMice,
+  createIndividuals,
   buildExperiment,
   computeRunMetrics,
   getMazeKey,
@@ -39,6 +39,142 @@ const pvalueEl = document.getElementById("pvalue");
 const chartsGrid = document.getElementById("charts-grid");
 const chartButtons = document.querySelectorAll(".chart-button");
 
+const CREATURE_OPTIONS = {
+  mice: {
+    label: "Mice",
+    singular: "mouse",
+    plural: "mice",
+    matchedLabel: "Matched pairs (each mouse runs twice)",
+    grouping: "litter",
+    groupingLabel: "Litter",
+    groupingLabelPlural: "Litters",
+    title: "Maze Mouse Drug Study",
+    sampleLabel: "Sample size (number of mice)",
+    caption: "Histograms update as each mouse finishes.",
+    blockAssignmentLabel: "Block assignment (by litter)",
+  },
+  turtles: {
+    label: "Turtles",
+    singular: "turtle",
+    plural: "turtles",
+    matchedLabel: "Matched pairs (each turtle runs twice)",
+    grouping: "clutch",
+    groupingLabel: "Clutch",
+    groupingLabelPlural: "Clutches",
+    title: "Maze Turtle Drug Study",
+    sampleLabel: "Sample size (number of turtles)",
+    caption: "Histograms update as each turtle finishes.",
+    blockAssignmentLabel: "Block assignment (by clutch)",
+  },
+  ants: {
+    label: "Ants",
+    singular: "ant",
+    plural: "ants",
+    matchedLabel: "Matched pairs (each ant runs twice)",
+    grouping: "colony",
+    groupingLabel: "Colony",
+    groupingLabelPlural: "Colonies",
+    title: "Maze Ant Drug Study",
+    sampleLabel: "Sample size (number of ants)",
+    caption: "Histograms update as each ant finishes.",
+    blockAssignmentLabel: "Block assignment (by colony)",
+  },
+};
+
+const appState = {
+  creature: "mice",
+};
+
+window.MAZE_APP = window.MAZE_APP || {};
+window.MAZE_APP.creature = appState.creature;
+
+function getCreatureOption(choice = appState.creature) {
+  return CREATURE_OPTIONS[choice] ?? CREATURE_OPTIONS.mice;
+}
+
+function updateCreatureUi(choice) {
+  const option = getCreatureOption(choice);
+  const heading = document.querySelector("header h1");
+  const sampleLabel = document.getElementById("sample-size-label");
+  const chartCaptionText = document.getElementById("chart-caption");
+  const blockAssignmentLabel = document.getElementById("block-assignment-label");
+  const matchedAssignmentLabel = document.querySelector('input[name="assignment"][value="matched"] + span strong');
+  const controlMarkingSwatch = document.getElementById("control-marking-swatch");
+  const drugMarkingSwatch = document.getElementById("drug-marking-swatch");
+  const controlMarkingLabel = document.getElementById("control-marking-label");
+  const drugMarkingLabel = document.getElementById("drug-marking-label");
+  const markingColors = GROUP_COLORS[option.singular];
+
+  appState.creature = choice;
+  window.MAZE_APP.creature = choice;
+
+  if (heading) {
+    heading.textContent = option.title;
+  }
+
+  if (sampleLabel) {
+    sampleLabel.textContent = option.sampleLabel;
+  }
+
+  if (chartCaptionText) {
+    chartCaptionText.textContent = option.caption;
+  }
+
+  if (blockAssignmentLabel) {
+    blockAssignmentLabel.textContent = option.blockAssignmentLabel;
+  }
+
+  if (matchedAssignmentLabel) {
+    matchedAssignmentLabel.textContent = option.matchedLabel;
+  }
+
+  const markingName = choice === "mice" ? "collar" : "marking";
+  if (controlMarkingSwatch && drugMarkingSwatch) {
+    controlMarkingSwatch.style.backgroundColor = markingColors.control;
+    drugMarkingSwatch.style.backgroundColor = markingColors.drug;
+  }
+  if (controlMarkingLabel && drugMarkingLabel) {
+    const controlColor = "Gray";
+    const drugColor = choice === "mice" ? "Green" : "Orange";
+    controlMarkingLabel.textContent = `${controlColor} ${markingName} = control`;
+    drugMarkingLabel.textContent = `${drugColor} ${markingName} = drug`;
+  }
+
+  if (document.getElementById("block-legend")) {
+    buildBlockLegend();
+  }
+
+  document.title = option.title + " — AP Stats Simulation";
+
+  resetAll();
+}
+
+function initializeCreatureChooser() {
+  const modal = document.getElementById("creature-modal");
+  const chooserButtons = document.querySelectorAll(".creature-option");
+
+  const revealSelection = (choice) => {
+    chooserButtons.forEach((button) => {
+      const isSelected = button.dataset.creature === choice;
+      button.classList.toggle("is-selected", isSelected);
+    });
+
+    updateCreatureUi(choice);
+    if (modal) {
+      modal.classList.add("is-hidden");
+    }
+  };
+
+  chooserButtons.forEach((button) => {
+    button.addEventListener("click", () => revealSelection(button.dataset.creature));
+  });
+
+  updateCreatureUi(appState.creature);
+  if (modal) {
+    modal.classList.remove("is-hidden");
+  }
+}
+
 let isRunning = false;
 let fastForwardRequested = false;
 let cancelRequested = false;
@@ -48,28 +184,28 @@ let diffRecords = [[], [], []];
 let chartMode = "run";
 let histograms = createChartManager("random", chartsGrid, chartMode, diffRecords);
 let mazeMemory = new Set();
-/** Tracks control & drug times per mouse for matched pairs */
+/** Tracks control & drug times per individual for matched pairs */
 const pairTracker = new Map();
 
 function resetPairTracker() {
   pairTracker.clear();
 }
 
-function tryCompletePair(mouseId, group, time, litter) {
-  if (!pairTracker.has(mouseId)) {
-    pairTracker.set(mouseId, { control: null, drug: null, litter, charted: false });
+function tryCompletePair(individualId, group, time, block) {
+  if (!pairTracker.has(individualId)) {
+    pairTracker.set(individualId, { control: null, drug: null, block, charted: false });
   }
-  const p = pairTracker.get(mouseId);
+  const p = pairTracker.get(individualId);
   p[group] = time;
-  p.litter = litter;
+  p.block = block;
 
   if (p.control != null && p.drug != null && !p.charted) {
     p.charted = true;
     return {
       type: "difference",
       time: round1(p.control - p.drug),
-      mouseId,
-      litter,
+      individualId,
+      block,
       control: p.control,
       drug: p.drug,
     };
@@ -81,7 +217,7 @@ function ingestRunRecords(records, assignmentType) {
   if (usesMatchedDifference(assignmentType)) {
     const newDiffs = [];
     for (const rec of records) {
-      const diffRec = tryCompletePair(rec.mouseId, rec.group, rec.time, rec.litter);
+      const diffRec = tryCompletePair(rec.individualId, rec.group, rec.time, rec.block);
       if (diffRec) {
         finishedRecords.push(diffRec);
         newDiffs.push(diffRec.time);
@@ -100,7 +236,7 @@ function ingestRunRecords(records, assignmentType) {
   if (records.length > 10) {
     histograms.addResultsBatch(records);
   } else if (usesBlockCharts(assignmentType)) {
-    records.forEach((rec) => histograms.addResult(rec.group, rec.time, rec.litter));
+    records.forEach((rec) => histograms.addResult(rec.group, rec.time, rec.block));
   } else {
     records.forEach((rec) => histograms.addResult(rec.group, rec.time));
   }
@@ -154,7 +290,7 @@ function setupCharts(assignmentType, newMazeEachRun) {
     renderRunCountBox();
   } else {
     histograms.destroy();
-    histograms = createChartManager(assignmentType, chartsGrid, chartMode, diffRecords);
+    histograms = createChartManager(assignmentType, chartsGrid, chartMode, diffRecords, getCreatureOption().singular);
     chartCaption.textContent = getChartLabels(assignmentType, newMazeEachRun).caption;
     chartCaption.style.display = "block";
   }
@@ -248,12 +384,12 @@ function prepareRunner(run, mazeBundle, assignmentType, newMazeEachRun, fastMode
   // Fast-forward mode skips the wandering search and takes the shortest
   // path instead — nobody watches the animation during fast-forward, so
   // nothing is lost, and it avoids running the (slower) search for every
-  // single mouse when simulating a large sample.
+  // single individual when simulating a large sample.
   const path = fastMode
     ? mazeBundle.shortestPath
     : exploreMazePath(grid, start, end, knownCells);
 
-  const metrics = computeRunMetrics(run.mouse, {
+  const metrics = computeRunMetrics(run.individual, {
     hasDrug: run.hasDrug,
     isRepeatMaze,
     assignmentType,
@@ -262,7 +398,7 @@ function prepareRunner(run, mazeBundle, assignmentType, newMazeEachRun, fastMode
 
   // Displayed speed is derived FROM the path and the time, after the fact —
   // it's just cells-per-second, not a separate random number. That keeps it
-  // honest: a mouse that finishes faster will always show a higher speed,
+  // honest: a individual that finishes faster will always show a higher speed,
   // because that's literally how it's computed.
   const speed = round1(path.length / metrics.completionTime);
 
@@ -272,6 +408,9 @@ function prepareRunner(run, mazeBundle, assignmentType, newMazeEachRun, fastMode
     completionTime: metrics.completionTime,
     speed,
     fur: run.fur,
+    shellColor: run.individual.shellColor,
+    limbColor: run.individual.limbColor,
+    antColor: run.individual.antColor,
     hasDrug: run.hasDrug,
     isRepeatMaze,
     cellSize: mazeBundle.cellSize,
@@ -305,8 +444,8 @@ async function bulkSimulateRuns(runs, assignmentType, newMazeEachRun, mazeCache)
     pending.push({
       group: runner.run.group,
       time: runner.completionTime,
-      litter: runner.run.mouse.litter,
-      mouseId: runner.run.mouse.id,
+      block: runner.run.individual.block,
+      individualId: runner.run.individual.id,
     });
 
     if (pending.length >= batchSize || i === runs.length - 1) {
@@ -340,8 +479,8 @@ async function runSimulation(fastMode = false) {
   }
   resetPValueAndSummary();
 
-  const mice = createMice(sampleSize);
-  const runs = buildExperiment(mice, assignmentType);
+  const individuals = createIndividuals(sampleSize, getCreatureOption().singular);
+  const runs = buildExperiment(individuals, assignmentType);
   const totalRuns = runs.length;
   const mazeCache = new Map();
   let completedRuns = 0;
@@ -370,7 +509,7 @@ async function runSimulation(fastMode = false) {
     );
 
     const isMulti = batch.length > 1;
-    mazeTitle.textContent = isMulti ? "All mice — shared maze" : "Maze run";
+    mazeTitle.textContent = isMulti ? `All ${getCreatureOption().plural} — shared maze` : "Maze run";
 
     if (isMulti) {
       const phaseNote =
@@ -382,7 +521,7 @@ async function runSimulation(fastMode = false) {
 
     statusEl.textContent = `Running ${completedRuns + 1}–${completedRuns + batch.length} / ${totalRuns}…`;
 
-    drawMaze(mazeCanvas.getContext("2d"), grid, {
+    drawMaze(mazeCanvas.getContext("2d"), grid, getCreatureOption().singular, {
       cellSize: mazeBundle.cellSize,
       padding: mazeBundle.padding,
     });
@@ -396,10 +535,13 @@ async function runSimulation(fastMode = false) {
         path: r.path,
         completionTime: r.completionTime,
         fur: r.fur,
+        shellColor: r.shellColor,
+        limbColor: r.limbColor,
+        antColor: r.antColor,
         hasDrug: r.hasDrug,
         group: r.run.group,
-        litter: r.run.mouse.litter,
-        mouseId: r.run.mouse.id,
+        block: r.run.individual.block,
+        individualId: r.run.individual.id,
       })),
       {
         cellSize: mazeBundle.cellSize,
@@ -407,7 +549,7 @@ async function runSimulation(fastMode = false) {
         animTimeScale: CONFIG.animTimeScale,
         shouldSkip: () => fastForwardRequested,
         isCancelled: () => cancelRequested,
-        // finishedStates can hold more than one mouse when several cross the
+        // finishedStates can hold more than one individual when several cross the
         // finish line on the same animation frame (common with a large,
         // shared-maze sample) — batching them into one ingest + one chart
         // refresh, instead of one each, avoids re-rendering the histograms
@@ -418,19 +560,20 @@ async function runSimulation(fastMode = false) {
             finishedStates.map((s) => ({
               group: s.group,
               time: s.completionTime,
-              litter: s.litter,
-              mouseId: s.mouseId,
+              block: s.block,
+              individualId: s.individualId,
             })),
             assignmentType
           );
           if (isMulti) {
             statusEl.textContent =
               `Running batch ${completedRuns + finishedInBatch}/${totalRuns} · ` +
-              `${finishedInBatch}/${batch.length} mice finished this maze…`;
+                `${finishedInBatch}/${batch.length} ${getCreatureOption().plural} finished this maze…`;
           }
           refreshSummary(assignmentType, newMazeEachRun);
         },
-      }
+      },
+      getCreatureOption().singular
     );
 
     if (times === null || cancelRequested) {
@@ -499,7 +642,7 @@ function resetAll() {
   const { mazeCols, mazeRows } = CONFIG;
   fitCanvas(mazeCanvas, mazeCols, mazeRows);
   const bundle = createMazeBundle(mazeCols, mazeRows);
-  drawMaze(mazeCanvas.getContext("2d"), bundle.grid, {
+  drawMaze(mazeCanvas.getContext("2d"), bundle.grid, getCreatureOption().singular, {
     cellSize: bundle.cellSize,
     padding: bundle.padding,
   });
@@ -560,11 +703,18 @@ randomMazeToggle.addEventListener("change", () => {
   if (!isRunning) setupCharts(getAssignmentType(), randomMazeEachRun());
 });
 
-function buildLitterLegend() {
-  const list = document.getElementById("litter-legend");
-  list.innerHTML = LITTER_FUR.map(
-    (fur, i) =>
-      `<li><span class="swatch fur" style="background:${fur.fur}"></span> Litter ${i + 1} — ${fur.name}</li>`
+function buildBlockLegend() {
+  const list = document.getElementById("block-legend");
+  const option = getCreatureOption();
+  const groupLabel = option.groupingLabel;
+  const entries = option.singular === "turtle"
+    ? TURTLE_SHELLS
+    : option.singular === "ant"
+      ? ANT_COLONIES
+      : BLOCK_FUR.map((fur) => ({ color: fur.fur, name: fur.name }));
+  list.innerHTML = entries.map(
+    (entry, i) =>
+      `<li><span class="swatch fur" style="background:${entry.color}"></span> ${groupLabel} ${i + 1} — ${entry.name}</li>`
   ).join("");
 }
 
@@ -577,6 +727,7 @@ function resetPValueAndSummary() {
   }
 }
 
-buildLitterLegend();
+buildBlockLegend();
+initializeCreatureChooser();
 updateFastForwardButton();
 resetAll();
