@@ -454,7 +454,7 @@ async function bulkSimulateRuns(runs, assignmentType, newMazeEachRun, mazeCache)
 
       statusEl.textContent = `Fast-forward: ${i + 1} / ${runs.length} runs simulated…`;
       refreshSummary(assignmentType, newMazeEachRun);
-      await new Promise((r) => requestAnimationFrame(r));
+      await new Promise((resolve) => setTimeout(resolve, 0));
     }
   }
 }
@@ -602,6 +602,7 @@ async function runSimulation(fastMode = false) {
     }
   }
 
+  const wasFastForwarded = fastForwardRequested;
   isRunning = false;
   fastForwardRequested = false;
   let index = assignmentType === "random" ? 0 : assignmentType === "block" ? 1 : 2;
@@ -619,6 +620,16 @@ async function runSimulation(fastMode = false) {
     cancelRequested = false;
     resetAll();
     return;
+  }
+
+  if (wasFastForwarded && newMazeEachRun) {
+    const { mazeCols, mazeRows } = CONFIG;
+    fitCanvas(mazeCanvas, mazeCols, mazeRows);
+    const previewMaze = createMazeBundle(mazeCols, mazeRows);
+    drawMaze(mazeCanvas.getContext("2d"), previewMaze.grid, getCreatureOption().singular, {
+      cellSize: previewMaze.cellSize,
+      padding: previewMaze.padding,
+    });
   }
 
   statusEl.textContent = `Done! ${totalRuns} runs completed.`;

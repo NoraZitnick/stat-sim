@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Maze Mouse Drug Study — AP Stats Simulation</title>
-  <link rel="stylesheet" href="css/styles.css" />
+  <link rel="stylesheet" href="css/styles.css?v=maze-toggle-20260929" />
   <!-- Chart.js: popular library for graphs; we use it for histograms -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 </head>
@@ -69,12 +69,12 @@
 
         <div class="button-row">
           <button id="run-btn" class="btn primary">Run simulation</button>
-          <button id="reset-btn" class="btn secondary">Reset</button>
+          <button id="fast-forward-btn" class="btn fast-forward" disabled>
+            Fast forward (skip animation)
+          </button>
         </div>
 
-        <button id="fast-forward-btn" class="btn fast-forward" disabled>
-          Fast forward (skip animation)
-        </button>
+        <button id="reset-btn" class="btn secondary reset">Reset</button>
 
         <p id="status" class="status">Ready. Choose settings and click Run simulation.</p>
       </section>
