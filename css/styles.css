@@ -1,5 +1,5 @@
 /* ==========================================================================
-   Maze Mouse Drug Study — Styles
+   Maze Ant Drug Study — Styles
    Clean layout for sidebar + maze + histograms
    ========================================================================== */
 
@@ -334,8 +334,8 @@ fieldset.field {
   grid-template-columns: 1fr 1fr;
 }
 
-/* Block assignment: 2x2 grid — top row is drug (litter 0, litter 1), bottom
-   row is control (litter 0, litter 1), so it reads as a 2x2 comparison. */
+/* Block assignment: 2x2 grid — top row is drug (colony 0, colony 1), bottom
+   row is control (colony 0, colony 1), so it reads as a 2x2 comparison. */
 .charts-grid--4 {
   grid-template-columns: 1fr 1fr;
 }

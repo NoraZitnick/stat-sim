@@ -1,13 +1,13 @@
 /**
- * study.js — Mice, group assignment, and the completion-time model.
+ * study.js — Ants, group assignment, and the completion-time model.
  *
  * This file answers two separate questions:
- *   1. createMice / buildExperiment — WHO runs the maze, and which group
+ *   1. createAnts / buildExperiment — WHO runs the maze, and which group
  *      (drug or control) each run belongs to. This is the "experimental
  *      design" part — it's where random / block / matched pairs differ.
  *   2. computeRunMetrics — HOW LONG that run takes. Every run's time is one
  *      random draw from a bell curve, nudged by whichever real effects and
- *      confounds apply (drug, litter, practice). The maze itself is just
+ *      confounds apply (drug, colony, practice). The maze itself is just
  *      for show — pathfinding does not feed back into this number, so the
  *      statistics stay easy to reason about.
  */
@@ -17,33 +17,33 @@ import { welchTTest, pairedTTest } from "./inference.js";
 
 let currentDiff = 0;
 
-export function createMice(sampleSize) {
-  const mice = [];
+export function createAnts(sampleSize) {
+  const ants = [];
   for (let i = 0; i < sampleSize; i++) {
-    const litter = i % CONFIG.numLitters;
-    mice.push({ id: i + 1, litter, fur: LITTER_FUR[litter] });
+    const colony = i % CONFIG.numColonies;
+    ants.push({ id: i + 1, colony, fur: LITTER_FUR[colony] });
   }
-  return mice;
+  return ants;
 }
 
 /**
  * Draws this run's completion time from a normal distribution, then applies
  * whichever real effects and confounds apply to this particular run:
- *   - litter shift    → a confound (see CONFIG.litterTimeShift)
+ *   - colony shift    → a confound (see CONFIG.colonyTimeShift)
  *   - drug effect     → the true effect the study is trying to detect
  *   - practice effect → a confound specific to matched pairs on a reused maze
  * `opts.assignmentType` and `opts.newMazeEachRun` only affect how much NOISE
  * is added (spread), not the mean — that's what makes some designs more
  * reliable than others at revealing the same true drug effect.
  */
-export function computeRunMetrics(mouse, opts) {
+export function computeRunMetrics(ant, opts) {
   const { hasDrug, isRepeatMaze, assignmentType, newMazeEachRun } = opts;
 
-  const litterShift = CONFIG.litterTimeShift[mouse.litter] ?? 0;
+  const colonyShift = CONFIG.colonyTimeShift[ant.colony] ?? 0;
   const mazeSpread = newMazeEachRun ? CONFIG.newMazeSpread : 0;
   const spread = CONFIG.timeStdDev + CONFIG.designTimeSpread[assignmentType] + mazeSpread;
 
-  let time = randomNormal(CONFIG.timeMean, spread) + litterShift;
+  let time = randomNormal(CONFIG.timeMean, spread) + colonyShift;
 
   if (hasDrug) {
     time -= CONFIG.drugTimeReduction + randomNormal(0, CONFIG.drugTimeNoise);
@@ -58,34 +58,34 @@ export function computeRunMetrics(mouse, opts) {
   return { completionTime: round1(time) };
 }
 
-export function buildExperiment(mice, assignmentType) {
+export function buildExperiment(ants, assignmentType) {
   switch (assignmentType) {
-    case "random": return buildRandomAssignment(mice);
-    case "block": return buildBlockAssignment(mice);
-    case "matched": return buildMatchedPairs(mice);
+    case "random": return buildRandomAssignment(ants);
+    case "block": return buildBlockAssignment(ants);
+    case "matched": return buildMatchedPairs(ants);
     default: throw new Error(`Unknown assignment: ${assignmentType}`);
   }
 }
 
-/** Exactly half the mice get drug (rounded to nearest mouse). */
+/** Exactly half the ants get drug (rounded to nearest ant). */
 export function drugGroupCount(total) {
   return Math.round(total / 2);
 }
 
 /**
  * Random assignment: shuffle everyone, then the first half get the drug.
- * Because litter isn't accounted for, a shuffle can (by chance) put more
- * of one litter in one group than the other — that's the confounding this
+ * Because colony isn't accounted for, a shuffle can (by chance) put more
+ * of one colony in one group than the other — that's the confounding this
  * design is vulnerable to.
  */
-function buildRandomAssignment(mice) {
-  const shuffled = shuffle([...mice]);
+function buildRandomAssignment(ants) {
+  const shuffled = shuffle([...ants]);
   const nDrug = drugGroupCount(shuffled.length);
 
   return shuffle(
-    shuffled.map((mouse, index) => {
+    shuffled.map((ant, index) => {
       const hasDrug = index < nDrug;
-      return makeRun(mouse, hasDrug, "random", {
+      return makeRun(ant, hasDrug, "random", {
         phase: 1,
         group: hasDrug ? "drug" : "control",
       });
@@ -94,22 +94,22 @@ function buildRandomAssignment(mice) {
 }
 
 /**
- * Block assignment: shuffle and split each litter separately, so every
- * litter is represented equally in both groups. This is what "blocking"
- * means — the confounding variable (litter) can no longer pile up
+ * Block assignment: shuffle and split each colony separately, so every
+ * colony is represented equally in both groups. This is what "blocking"
+ * means — the confounding variable (colony) can no longer pile up
  * unevenly in one group, whatever else happens.
  */
-function buildBlockAssignment(mice) {
+function buildBlockAssignment(ants) {
   const runs = [];
-  for (let litter = 0; litter < CONFIG.numLitters; litter++) {
-    const inLitter = mice.filter((m) => m.litter === litter);
-    const shuffled = shuffle([...inLitter]);
+  for (let colony = 0; colony < CONFIG.numColonies; colony++) {
+    const inColony = ants.filter((m) => m.colony === colony);
+    const shuffled = shuffle([...inColony]);
     const nDrug = drugGroupCount(shuffled.length);
 
-    shuffled.forEach((mouse, index) => {
+    shuffled.forEach((ant, index) => {
       const hasDrug = index < nDrug;
       runs.push(
-        makeRun(mouse, hasDrug, "block", {
+        makeRun(ant, hasDrug, "block", {
           phase: 1,
           group: hasDrug ? "drug" : "control",
         })
@@ -120,44 +120,44 @@ function buildBlockAssignment(mice) {
 }
 
 /**
- * Matched pairs: every mouse runs TWICE, once with the drug and once
- * without — so each mouse acts as its own control. Whether a given mouse
+ * Matched pairs: every ant runs TWICE, once with the drug and once
+ * without — so each ant acts as its own control. Whether a given ant
  * gets the drug first or second is randomized, so any practice/order
  * effect (see learningTimeReduction) isn't stacked onto one group.
  */
-function buildMatchedPairs(mice) {
-  const shuffled = shuffle([...mice]);
+function buildMatchedPairs(ants) {
+  const shuffled = shuffle([...ants]);
   const half = Math.floor(shuffled.length / 2);
   const runs = [];
 
-  shuffled.forEach((mouse, index) => {
+  shuffled.forEach((ant, index) => {
     const drugFirst = index < half;
     if (drugFirst) {
-      runs.push(makeRun(mouse, true, "matched", { phase: 1, group: "drug", pairOrder: "drug-first" }));
-      runs.push(makeRun(mouse, false, "matched", { phase: 2, group: "control", pairOrder: "drug-first" }));
+      runs.push(makeRun(ant, true, "matched", { phase: 1, group: "drug", pairOrder: "drug-first" }));
+      runs.push(makeRun(ant, false, "matched", { phase: 2, group: "control", pairOrder: "drug-first" }));
     } else {
-      runs.push(makeRun(mouse, false, "matched", { phase: 1, group: "control", pairOrder: "control-first" }));
-      runs.push(makeRun(mouse, true, "matched", { phase: 2, group: "drug", pairOrder: "control-first" }));
+      runs.push(makeRun(ant, false, "matched", { phase: 1, group: "control", pairOrder: "control-first" }));
+      runs.push(makeRun(ant, true, "matched", { phase: 2, group: "drug", pairOrder: "control-first" }));
     }
   });
 
   return runs;
 }
 
-function makeRun(mouse, hasDrug, assignmentType, meta) {
+function makeRun(ant, hasDrug, assignmentType, meta) {
   return {
-    mouse,
+    ant,
     hasDrug,
     assignmentType,
     ringColor: hasDrug ? GROUP_RING.drug : GROUP_RING.control,
-    fur: mouse.fur,
+    fur: ant.fur,
     ...meta,
   };
 }
 
 /**
  * Batch runs for animation.
- * Shared maze (toggle off): all mice together; matched = phase 1 batch then phase 2 batch.
+ * Shared maze (toggle off): all ants together; matched = phase 1 batch then phase 2 batch.
  */
 export function groupRunBatches(runs, assignmentType, randomMazeEachRun) {
   if (!randomMazeEachRun) {
@@ -173,7 +173,7 @@ export function groupRunBatches(runs, assignmentType, randomMazeEachRun) {
 
 export function getMazeKey(run, assignmentType, randomMazeEachRun) {
   if (randomMazeEachRun) {
-    return `run-${run.mouse.id}-${run.phase ?? 1}-${Math.random().toString(36).slice(2, 9)}`;
+    return `run-${run.ant.id}-${run.phase ?? 1}-${Math.random().toString(36).slice(2, 9)}`;
   }
   return "shared-maze";
 }
@@ -186,22 +186,22 @@ export function usesMatchedDifference(assignmentType) {
   return assignmentType === "matched";
 }
 
-/** Splits records into one { litter, controlTimes, drugTimes } bucket per litter. */
-function groupRecordsByLitter(records) {
+/** Splits records into one { colony, controlTimes, drugTimes } bucket per colony. */
+function groupRecordsByColony(records) {
   const groups = [];
-  for (let litter = 0; litter < CONFIG.numLitters; litter++) {
-    const litterRecords = records.filter((r) => r.litter === litter);
+  for (let colony = 0; colony < CONFIG.numColonies; colony++) {
+    const colonyRecords = records.filter((r) => r.colony === colony);
     groups.push({
-      litter,
-      controlTimes: litterRecords.filter((r) => r.group === "control").map((r) => r.time),
-      drugTimes: litterRecords.filter((r) => r.group === "drug").map((r) => r.time),
+      colony,
+      controlTimes: colonyRecords.filter((r) => r.group === "control").map((r) => r.time),
+      drugTimes: colonyRecords.filter((r) => r.group === "drug").map((r) => r.time),
     });
   }
   return groups;
 }
 
-function litterName(litter) {
-  return LITTER_FUR[litter]?.name ?? `Litter ${litter + 1}`;
+function colonyName(colony) {
+  return LITTER_FUR[colony]?.name ?? `Colony ${colony + 1}`;
 }
 
 export function summarizeResults(records, assignmentType, randomMazeEachRun) {
@@ -222,17 +222,17 @@ export function summarizeResults(records, assignmentType, randomMazeEachRun) {
   }
 
   if (assignmentType === "block") {
-    // Litter is the confound block assignment controls for, so the summary
+    // Colony is the confound block assignment controls for, so the summary
     // reports drug/control means and the difference separately PER LITTER —
     // pooling them together would hide exactly the thing blocking fixes.
-    const byLitter = groupRecordsByLitter(records);
-    const parts = byLitter
+    const byColony = groupRecordsByColony(records);
+    const parts = byColony
       .filter(({ controlTimes, drugTimes }) => controlTimes.length > 0 && drugTimes.length > 0)
-      .map(({ litter, controlTimes, drugTimes }) => {
+      .map(({ colony, controlTimes, drugTimes }) => {
         const drugMean = round1(mean(drugTimes));
         const controlMean = round1(mean(controlTimes));
         currentDiff = round1(controlMean - drugMean);
-        return `${litterName(litter)} Control Mean - Drug Mean: ${currentDiff}s`;
+        return `${colonyName(colony)} Control Mean - Drug Mean: ${currentDiff}s`;
       });
 
     return parts.length > 0 ? parts.join("\n") : "Waiting for data…";
@@ -266,16 +266,16 @@ function formatPValue(p) {
 /**
  * How likely the observed difference is under pure chance (no real drug effect):
  * a Welch two-sample t-test for random/matched pairs (paired) — and, for block
- * assignment, one Welch t-test PER LITTER, combined across litters:
- *   - If every litter's difference points the SAME direction (drug faster in
+ * assignment, one Welch t-test PER LITTER, combined across colonies:
+ *   - If every colony's difference points the SAME direction (drug faster in
  *     both, or drug slower in both), that's reinforcing evidence, so the
- *     combined probability is the product of the per-litter p-values (the
+ *     combined probability is the product of the per-colony p-values (the
  *     chance BOTH happen together by chance).
- *   - If litters DISAGREE on direction (drug looked faster in one litter and
+ *   - If colonies DISAGREE on direction (drug looked faster in one colony and
  *     slower in the other), that's contradictory evidence, not reinforcing
  *     evidence — multiplying would overstate how sure we are. Instead each
- *     litter's confidence (1 − p) is signed by its direction and averaged,
- *     so the litters partially cancel each other out rather than compound.
+ *     colony's confidence (1 − p) is signed by its direction and averaged,
+ *     so the colonies partially cancel each other out rather than compound.
  */
 export function describeSignificance(records, assignmentType) {
   if (assignmentType === "matched") {
@@ -286,19 +286,19 @@ export function describeSignificance(records, assignmentType) {
   }
 
   if (assignmentType === "block") {
-    const byLitter = groupRecordsByLitter(records);
-    const results = byLitter.map(({ litter, controlTimes, drugTimes }) => {
+    const byColony = groupRecordsByColony(records);
+    const results = byColony.map(({ colony, controlTimes, drugTimes }) => {
       if (controlTimes.length < 2 || drugTimes.length < 2) return null;
       const result = welchTTest(drugTimes, controlTimes);
-      return result ? { litter, p: result.p, t: result.t } : null;
+      return result ? { colony, p: result.p, t: result.t } : null;
     });
 
     if (results.some((r) => r === null)) {
-      return "P = — (need at least 2 mice per group in each litter to compute)";
+      return "P = — (need at least 2 ants per group in each colony to compute)";
     }
 
-    const perLitterText = results
-      .map(({ litter, p }) => `${litterName(litter)}: ${formatPValue(p)}`)
+    const perColonyText = results
+      .map(({ colony, p }) => `${colonyName(colony)}: ${formatPValue(p)}`)
       .join("\n");
 
     const nonZeroSigns = results.map((r) => Math.sign(r.t)).filter((s) => s !== 0);
@@ -312,12 +312,12 @@ export function describeSignificance(records, assignmentType) {
       const signedConfidence =
         results.reduce((sum, r) => sum + Math.sign(r.t) * (1 - r.p), 0) / results.length;
       combinedP = 1 - Math.abs(signedConfidence);
-      combinedNote = " (litters disagree on direction, so their evidence partially cancels instead of compounding)";
+      combinedNote = " (colonies disagree on direction, so their evidence partially cancels instead of compounding)";
     }
     const combinedClamped = Math.max(0, Math.min(1, combinedP));
 
     return (
-      `${perLitterText} ` +
+      `${perColonyText} ` +
       `\nCombined probability: ${formatPValue(combinedClamped)}${combinedNote}`
     );
   }
@@ -325,7 +325,7 @@ export function describeSignificance(records, assignmentType) {
   const controlTimes = records.filter((r) => r.group === "control").map((r) => r.time);
   const drugTimes = records.filter((r) => r.group === "drug").map((r) => r.time);
   if (controlTimes.length < 2 || drugTimes.length < 2) {
-    return "P = — (need at least 2 mice per group to compute)";
+    return "P = — (need at least 2 ants per group to compute)";
   }
   const result = welchTTest(drugTimes, controlTimes);
   return result ? formatPValue(result.p) : "";
@@ -342,7 +342,7 @@ export function getChartLabels(assignmentType, randomMazeEachRun) {
   if (assignmentType === "matched") {
     const mazeNote = randomMazeEachRun
       ? "Each run uses a new maze."
-      : "All mice run together on the same maze — 2nd phase is faster from practice.";
+      : "All ants run together on the same maze — 2nd phase is faster from practice.";
     return {
       mode: "difference",
       caption: "",

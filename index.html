@@ -3,14 +3,14 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Maze Mouse Drug Study — AP Stats Simulation</title>
+  <title>Maze Ant Drug Study — AP Stats Simulation</title>
   <link rel="stylesheet" href="css/styles.css" />
   <!-- Chart.js: popular library for graphs; we use it for histograms -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 </head>
 <body>
   <header>
-    <h1>Maze Mouse Drug Study</h1>
+    <h1>Maze Ant Drug Study</h1>
   </header>
 
   <main class="layout">
@@ -20,7 +20,7 @@
         <h2>Settings</h2>
 
         <label class="field">
-          <span>Sample size (number of mice)</span>
+          <span>Sample size (number of ants)</span>
           <input type="number" id="sample-size" min="4" max="300" value="20" step="2" />
           <small>Use the Fast forward button below to skip the animation.</small>
         </label>
@@ -43,14 +43,14 @@
           <label class="radio">
             <input type="radio" name="assignment" value="block" />
             <span>
-              <strong>Block assignment (by litter)</strong>
+              <strong>Block assignment (by colony)</strong>
             </span>
           </label>
 
           <label class="radio">
             <input type="radio" name="assignment" value="matched" />
             <span>
-              <strong>Matched pairs (each mouse runs twice)</strong>
+              <strong>Matched pairs (each ant runs twice)</strong>
             </span>
           </label>
         </fieldset>
@@ -82,7 +82,7 @@
             <li><span class="swatch collar-control"></span> Gray collar = control</li>
             <li><span class="swatch collar-drug"></span> Green collar = drug</li>
           </ul>
-          <ul class="legend-list legend-col" id="litter-legend"></ul>
+          <ul class="legend-list legend-col" id="colony-legend"></ul>
         </div>
       </section>
     </section>
@@ -95,7 +95,7 @@
       </section>
       <h2>Completion times (seconds)</h2>
       <p id="chart-caption" class="chart-caption">
-        Histograms update as each mouse finishes.
+        Histograms update as each ant finishes.
       </p>
       <div class="charts-grid" id="charts-grid"></div>
       <p id="summary" class="summary"></p>

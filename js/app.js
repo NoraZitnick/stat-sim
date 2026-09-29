@@ -11,7 +11,7 @@ import {
   createMazeBundle,
 } from "./maze.js";
 import {
-  createMice,
+  createAnts,
   buildExperiment,
   computeRunMetrics,
   getMazeKey,
@@ -48,28 +48,28 @@ let diffRecords = [[], [], []];
 let chartMode = "run";
 let histograms = createChartManager("random", chartsGrid, chartMode, diffRecords);
 let mazeMemory = new Set();
-/** Tracks control & drug times per mouse for matched pairs */
+/** Tracks control & drug times per ant for matched pairs */
 const pairTracker = new Map();
 
 function resetPairTracker() {
   pairTracker.clear();
 }
 
-function tryCompletePair(mouseId, group, time, litter) {
-  if (!pairTracker.has(mouseId)) {
-    pairTracker.set(mouseId, { control: null, drug: null, litter, charted: false });
+function tryCompletePair(antId, group, time, colony) {
+  if (!pairTracker.has(antId)) {
+    pairTracker.set(antId, { control: null, drug: null, colony, charted: false });
   }
-  const p = pairTracker.get(mouseId);
+  const p = pairTracker.get(antId);
   p[group] = time;
-  p.litter = litter;
+  p.colony = colony;
 
   if (p.control != null && p.drug != null && !p.charted) {
     p.charted = true;
     return {
       type: "difference",
       time: round1(p.control - p.drug),
-      mouseId,
-      litter,
+      antId,
+      colony,
       control: p.control,
       drug: p.drug,
     };
@@ -81,7 +81,7 @@ function ingestRunRecords(records, assignmentType) {
   if (usesMatchedDifference(assignmentType)) {
     const newDiffs = [];
     for (const rec of records) {
-      const diffRec = tryCompletePair(rec.mouseId, rec.group, rec.time, rec.litter);
+      const diffRec = tryCompletePair(rec.antId, rec.group, rec.time, rec.colony);
       if (diffRec) {
         finishedRecords.push(diffRec);
         newDiffs.push(diffRec.time);
@@ -100,7 +100,7 @@ function ingestRunRecords(records, assignmentType) {
   if (records.length > 10) {
     histograms.addResultsBatch(records);
   } else if (usesBlockCharts(assignmentType)) {
-    records.forEach((rec) => histograms.addResult(rec.group, rec.time, rec.litter));
+    records.forEach((rec) => histograms.addResult(rec.group, rec.time, rec.colony));
   } else {
     records.forEach((rec) => histograms.addResult(rec.group, rec.time));
   }
@@ -248,12 +248,12 @@ function prepareRunner(run, mazeBundle, assignmentType, newMazeEachRun, fastMode
   // Fast-forward mode skips the wandering search and takes the shortest
   // path instead — nobody watches the animation during fast-forward, so
   // nothing is lost, and it avoids running the (slower) search for every
-  // single mouse when simulating a large sample.
+  // single ant when simulating a large sample.
   const path = fastMode
     ? mazeBundle.shortestPath
     : exploreMazePath(grid, start, end, knownCells);
 
-  const metrics = computeRunMetrics(run.mouse, {
+  const metrics = computeRunMetrics(run.ant, {
     hasDrug: run.hasDrug,
     isRepeatMaze,
     assignmentType,
@@ -262,7 +262,7 @@ function prepareRunner(run, mazeBundle, assignmentType, newMazeEachRun, fastMode
 
   // Displayed speed is derived FROM the path and the time, after the fact —
   // it's just cells-per-second, not a separate random number. That keeps it
-  // honest: a mouse that finishes faster will always show a higher speed,
+  // honest: a ant that finishes faster will always show a higher speed,
   // because that's literally how it's computed.
   const speed = round1(path.length / metrics.completionTime);
 
@@ -305,8 +305,8 @@ async function bulkSimulateRuns(runs, assignmentType, newMazeEachRun, mazeCache)
     pending.push({
       group: runner.run.group,
       time: runner.completionTime,
-      litter: runner.run.mouse.litter,
-      mouseId: runner.run.mouse.id,
+      colony: runner.run.ant.colony,
+      antId: runner.run.ant.id,
     });
 
     if (pending.length >= batchSize || i === runs.length - 1) {
@@ -340,8 +340,8 @@ async function runSimulation(fastMode = false) {
   }
   resetPValueAndSummary();
 
-  const mice = createMice(sampleSize);
-  const runs = buildExperiment(mice, assignmentType);
+  const ants = createAnts(sampleSize);
+  const runs = buildExperiment(ants, assignmentType);
   const totalRuns = runs.length;
   const mazeCache = new Map();
   let completedRuns = 0;
@@ -370,7 +370,7 @@ async function runSimulation(fastMode = false) {
     );
 
     const isMulti = batch.length > 1;
-    mazeTitle.textContent = isMulti ? "All mice — shared maze" : "Maze run";
+    mazeTitle.textContent = isMulti ? "All ants — shared maze" : "Maze run";
 
     if (isMulti) {
       const phaseNote =
@@ -398,8 +398,8 @@ async function runSimulation(fastMode = false) {
         fur: r.fur,
         hasDrug: r.hasDrug,
         group: r.run.group,
-        litter: r.run.mouse.litter,
-        mouseId: r.run.mouse.id,
+        colony: r.run.ant.colony,
+        antId: r.run.ant.id,
       })),
       {
         cellSize: mazeBundle.cellSize,
@@ -407,7 +407,7 @@ async function runSimulation(fastMode = false) {
         animTimeScale: CONFIG.animTimeScale,
         shouldSkip: () => fastForwardRequested,
         isCancelled: () => cancelRequested,
-        // finishedStates can hold more than one mouse when several cross the
+        // finishedStates can hold more than one ant when several cross the
         // finish line on the same animation frame (common with a large,
         // shared-maze sample) — batching them into one ingest + one chart
         // refresh, instead of one each, avoids re-rendering the histograms
@@ -418,15 +418,15 @@ async function runSimulation(fastMode = false) {
             finishedStates.map((s) => ({
               group: s.group,
               time: s.completionTime,
-              litter: s.litter,
-              mouseId: s.mouseId,
+              colony: s.colony,
+              antId: s.antId,
             })),
             assignmentType
           );
           if (isMulti) {
             statusEl.textContent =
               `Running batch ${completedRuns + finishedInBatch}/${totalRuns} · ` +
-              `${finishedInBatch}/${batch.length} mice finished this maze…`;
+              `${finishedInBatch}/${batch.length} ants finished this maze…`;
           }
           refreshSummary(assignmentType, newMazeEachRun);
         },
@@ -560,11 +560,11 @@ randomMazeToggle.addEventListener("change", () => {
   if (!isRunning) setupCharts(getAssignmentType(), randomMazeEachRun());
 });
 
-function buildLitterLegend() {
-  const list = document.getElementById("litter-legend");
+function buildColonyLegend() {
+  const list = document.getElementById("colony-legend");
   list.innerHTML = LITTER_FUR.map(
     (fur, i) =>
-      `<li><span class="swatch fur" style="background:${fur.fur}"></span> Litter ${i + 1} — ${fur.name}</li>`
+      `<li><span class="swatch fur" style="background:${fur.fur}"></span> Colony ${i + 1} — ${fur.name}</li>`
   ).join("");
 }
 
@@ -577,6 +577,6 @@ function resetPValueAndSummary() {
   }
 }
 
-buildLitterLegend();
+buildColonyLegend();
 updateFastForwardButton();
 resetAll();
