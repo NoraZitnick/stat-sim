@@ -479,8 +479,8 @@ fieldset.field {
   align-items: center;
   justify-content: center;
   border-radius: 50%;
-  border: 1px solid var(--border);
-  background: var(--panel);
+  border: 0;
+  background: transparent;
   color: var(--muted);
   font-size: 0.75rem;
   line-height: 1;
@@ -489,10 +489,16 @@ fieldset.field {
   z-index: 2;
 }
 
+.chart-info::before {
+  content: "";
+  position: absolute;
+  inset: -50px;
+  border-radius: 50%;
+}
+
 .chart-info:hover,
 .chart-info:focus-visible {
   color: var(--accent);
-  border-color: var(--accent);
   outline: none;
 }
 
