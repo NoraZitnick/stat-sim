@@ -278,9 +278,8 @@ fieldset.field {
 .btn.fast-forward {
   width: auto;
   margin-top: 0;
-  background: #fef3c7;
-  color: #92400e;
-  border: 1px solid #fcd34d;
+  background: #ffe270;
+  color: #793206;
 }
 
 .btn.reset {
@@ -290,7 +289,7 @@ fieldset.field {
 }
 
 .btn.fast-forward:hover:not(:disabled) {
-  background: #fde68a;
+  background: #ffe270;
 }
 
 .btn:disabled {

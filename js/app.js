@@ -30,7 +30,6 @@ const sampleSizeInput = document.getElementById("sample-size");
 const randomMazeToggle = document.getElementById("random-maze");
 const runBtn = document.getElementById("run-btn");
 const resetBtn = document.getElementById("reset-btn");
-const fastForwardBtn = document.getElementById("fast-forward-btn");
 const statusEl = document.getElementById("status");
 const mazeCanvas = document.getElementById("maze-canvas");
 const mazeTitle = document.getElementById("maze-title");
@@ -252,11 +251,18 @@ function randomMazeEachRun() {
 }
 
 function updateFastForwardButton() {
-  fastForwardBtn.disabled = !isRunning;
+  runBtn.textContent = !isRunning
+    ? "Run simulation"
+    : fastForwardRequested
+      ? "Fast-forwarding…"
+      : "Fast forward";
+  runBtn.classList.toggle("primary", !isRunning);
+  runBtn.classList.toggle("fast-forward", isRunning);
+  runBtn.disabled = isRunning && fastForwardRequested;
 }
 
 function setControlsEnabled(enabled) {
-  runBtn.disabled = !enabled;
+  updateFastForwardButton();
   sampleSizeInput.disabled = !enabled;
   randomMazeToggle.disabled = !enabled;
   document.querySelectorAll('input[name="assignment"]').forEach((el) => {
@@ -265,11 +271,6 @@ function setControlsEnabled(enabled) {
   chartButtons.forEach((button) => {
     button.disabled = !enabled || isRunning;
   });
-  if (!enabled) {
-    fastForwardBtn.disabled = false;
-  } else {
-    updateFastForwardButton();
-  }
 }
 
 function sleep(ms) {
@@ -664,6 +665,10 @@ function resetAll() {
 }
 
 runBtn.addEventListener("click", () => {
+  if (isRunning) {
+    requestFastForward();
+    return;
+  }
   runSimulation().catch((err) => {
     console.error(err);
     statusEl.textContent = "Something went wrong. Check the console.";
@@ -686,12 +691,12 @@ resetBtn.addEventListener("click", () => {
   resetAll();
 });
 
-fastForwardBtn.addEventListener("click", () => {
-  if (!isRunning) return;
+function requestFastForward() {
+  if (!isRunning || fastForwardRequested) return;
   fastForwardRequested = true;
-  fastForwardBtn.disabled = true;
+  updateFastForwardButton();
   statusEl.textContent = "Fast-forwarding…";
-});
+}
 
 document.querySelectorAll('input[name="assignment"]').forEach((el) => {
   el.addEventListener("change", () => {
