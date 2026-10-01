@@ -18,6 +18,68 @@ import { CONFIG, getCreatureBlocks, GROUP_COLORS, mean, round1, stdDev } from ".
 
 let max_count = 0;
 
+const meanMarkerPlugin = {
+  id: "meanMarker",
+  afterDatasetsDraw(chart) {
+    const meanValue = chart.$meanValue;
+    const binMin = chart.$meanBinMin;
+    const binWidth = chart.$meanBinWidth;
+    if (!Number.isFinite(meanValue) || !Number.isFinite(binMin) || !Number.isFinite(binWidth)) return;
+
+    const xScale = chart.scales.x;
+    const { left, right, top, bottom } = chart.chartArea;
+    const binPosition = (meanValue - binMin) / binWidth - 0.5;
+    const firstCenter = xScale.getPixelForValue(0);
+    const secondCenter = xScale.getPixelForValue(1);
+    const xPosition = Math.max(left, Math.min(right, firstCenter + binPosition * (secondCenter - firstCenter)));
+    const { ctx } = chart;
+
+    ctx.save();
+    ctx.strokeStyle = "#111827";
+    ctx.fillStyle = "#111827";
+    ctx.lineWidth = 2;
+    ctx.setLineDash([5, 4]);
+    ctx.beginPath();
+    ctx.moveTo(xPosition, top);
+    ctx.lineTo(xPosition, bottom);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.font = "600 11px sans-serif";
+    const label = `Mean: ${round1(meanValue)}s`;
+    const labelWidth = ctx.measureText(label).width + 10;
+    const labelHeight = 20;
+    const labelLeft = Math.max(left, Math.min(right - labelWidth, xPosition + 5 + labelWidth <= right ? xPosition + 5 : xPosition - labelWidth - 5));
+    const labelTop = top + 3;
+
+    ctx.fillStyle = "rgba(255, 255, 255, 0.96)";
+    ctx.strokeStyle = "#111827";
+    ctx.lineWidth = 1;
+    ctx.fillRect(labelLeft, labelTop, labelWidth, labelHeight);
+    ctx.strokeRect(labelLeft, labelTop, labelWidth, labelHeight);
+    ctx.fillStyle = "#111827";
+    ctx.textAlign = "left";
+    ctx.textBaseline = "middle";
+    ctx.fillText(label, labelLeft + 5, labelTop + labelHeight / 2);
+    ctx.restore();
+  },
+};
+
+Chart.register(meanMarkerPlugin);
+
+function setMeanMarker(chart, values, binSpec, binWidth) {
+  chart.$meanValue = values.length > 0 ? mean(values) : null;
+  chart.$meanBinMin = binSpec.edges[0]?.start;
+  chart.$meanBinWidth = binWidth;
+}
+
+function runHistoryColors(edges, creature) {
+  const colors = GROUP_COLORS[creature] ?? GROUP_COLORS.mouse;
+  return {
+    background: edges.map((edge) => `${edge.end <= 0 ? colors.control : colors.drug}cc`),
+    border: edges.map((edge) => edge.end <= 0 ? colors.control : colors.drug),
+  };
+}
+
 function formatStats(values) {
   if (values.length === 0) return "No data yet";
   return `n = ${values.length}\nMean = ${round1(mean(values))}s\nSD = ${round1(stdDev(values))}s`;
@@ -289,6 +351,8 @@ export class HistogramStacked {
   setTitles() {}
 
   updateStats() {
+    setMeanMarker(this.charts.drug, this.rawDrug, this.binSpec, CONFIG.binWidth);
+    setMeanMarker(this.charts.control, this.rawControl, this.binSpec, CONFIG.binWidth);
     setInfoTooltip(this.charts.drug.canvas.closest(".chart-box"), formatStats(this.rawDrug));
     setInfoTooltip(this.charts.control.canvas.closest(".chart-box"), formatStats(this.rawControl));
   }
@@ -455,6 +519,8 @@ export class HistogramBlockStacked {
 
   updateStats() {
     for (const entry of this.charts) {
+      setMeanMarker(entry.charts.drug, entry.rawDrug, this.binSpec, CONFIG.binWidth);
+      setMeanMarker(entry.charts.control, entry.rawControl, this.binSpec, CONFIG.binWidth);
       setInfoTooltip(entry.charts.drug.canvas.closest(".chart-box"), formatStats(entry.rawDrug));
       setInfoTooltip(entry.charts.control.canvas.closest(".chart-box"), formatStats(entry.rawControl));
     }
@@ -588,6 +654,7 @@ export class HistogramDifference {
   setTitles() {}
 
   updateStats() {
+    setMeanMarker(this.chart, this.rawDiffs, this.binSpec, CONFIG.diffBinWidth);
     setInfoTooltip(this.chart.canvas.closest(".chart-box"), formatStats(this.rawDiffs));
   }
 
@@ -705,8 +772,8 @@ export class HistogramRunHistory {
           datasets: [{
             label: "Frequency",
             data: edges.map(() => 0),
-            backgroundColor: "#2563ebcc",
-            borderColor: "#2563eb",
+            backgroundColor: runHistoryColors(edges, creature).background,
+            borderColor: runHistoryColors(edges, creature).border,
             borderWidth: 1,
           }],
         },
@@ -772,12 +839,16 @@ export class HistogramRunHistory {
       state.edges = workingEdges;
       state.chart.data.labels = workingSpec.labels;
       state.chart.data.datasets[0].data = workingEdges.map((edge) => edge.count);
+      const colors = runHistoryColors(workingEdges, creature);
+      state.chart.data.datasets[0].backgroundColor = colors.background;
+      state.chart.data.datasets[0].borderColor = colors.border;
       updateChart(state.chart);
       this.updateStats(state);
     }
   }
 
   updateStats(state) {
+    setMeanMarker(state.chart, state.rawDiffs, state.binSpec, CONFIG.diffBinWidthMultiGraph);
     setInfoTooltip(state.chart.canvas.closest(".chart-box"), formatStats(state.rawDiffs));
   }
 
