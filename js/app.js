@@ -180,10 +180,12 @@ let fastForwardRequested = false;
 let cancelRequested = false;
 let multiRunCancelRequested = false;
 let finishedRecords = [];
+const latestRunRecords = new Map();
 let diffRecords = [[], [], []];
 let chartMode = "run";
 let histograms = createChartManager("random", chartsGrid, chartMode, diffRecords);
 let mazeMemory = new Set();
+let displayedMazeBundle = null;
 /** Tracks control & drug times per individual for matched pairs */
 const pairTracker = new Map();
 
@@ -244,6 +246,24 @@ function ingestRunRecords(records, assignmentType) {
 
 function getAssignmentType() {
   return document.querySelector('input[name="assignment"]:checked').value;
+}
+
+function getRunRecordsKey(assignmentType) {
+  return `${appState.creature}:${assignmentType}`;
+}
+
+function restoreLatestRun(assignmentType) {
+  if (chartMode === "multi") return;
+  const records = latestRunRecords.get(getRunRecordsKey(assignmentType));
+  finishedRecords = records ? records.map((record) => ({ ...record })) : [];
+  if (!records) return;
+
+  if (usesMatchedDifference(assignmentType)) {
+    histograms.addDifferencesBatch(finishedRecords.map((record) => record.time));
+  } else {
+    histograms.addResultsBatch(finishedRecords);
+  }
+  refreshSummary(assignmentType, randomMazeEachRun());
 }
 
 function randomMazeEachRun() {
@@ -335,6 +355,7 @@ function renderRunCountBox() {
 async function addRuns(runs) {
   const count = Number.parseInt(runs, 0);
   if (!Number.isFinite(count) || count <= 0) return;
+  drawMazeWithoutRunners();
   multiRunCancelRequested = false;
   for (let i = 0; i < count; i++) {
     try {
@@ -353,16 +374,29 @@ async function addRuns(runs) {
       break;
     }
   }
+  drawMazeWithoutRunners();
 }
 
 function getMazeFromCache(run, assignmentType, cache) {
   const key = getMazeKey(run, assignmentType, randomMazeEachRun());
   if (!cache.has(key)) {
     const { mazeCols, mazeRows } = CONFIG;
-    fitCanvas(mazeCanvas, mazeCols, mazeRows);
     cache.set(key, createMazeBundle(mazeCols, mazeRows));
   }
   return cache.get(key);
+}
+
+function drawMazeWithoutRunners(mazeBundle = displayedMazeBundle) {
+  if (!mazeBundle) return;
+  const expectedWidth = mazeBundle.padding * 2 + mazeBundle.grid[0].length * mazeBundle.cellSize;
+  const expectedHeight = mazeBundle.padding * 2 + mazeBundle.grid.length * mazeBundle.cellSize;
+  if (mazeCanvas.width !== expectedWidth || mazeCanvas.height !== expectedHeight) {
+    fitCanvas(mazeCanvas, mazeBundle.grid[0].length, mazeBundle.grid.length, mazeBundle.cellSize, mazeBundle.padding);
+  }
+  drawMaze(mazeCanvas.getContext("2d"), mazeBundle.grid, getCreatureOption().singular, {
+    cellSize: mazeBundle.cellSize,
+    padding: mazeBundle.padding,
+  });
 }
 
 function cellKey(x, y) {
@@ -505,6 +539,7 @@ async function runSimulation(fastMode = false) {
     }
 
     const mazeBundle = getMazeFromCache(batch[0], assignmentType, mazeCache);
+    displayedMazeBundle = mazeBundle;
     const { grid } = mazeBundle;
 
     const runners = batch.map((run) =>
@@ -605,7 +640,6 @@ async function runSimulation(fastMode = false) {
     }
   }
 
-  const wasFastForwarded = fastForwardRequested;
   isRunning = false;
   fastForwardRequested = false;
   let index = assignmentType === "random" ? 0 : assignmentType === "block" ? 1 : 2;
@@ -627,20 +661,16 @@ async function runSimulation(fastMode = false) {
     return;
   }
 
-  if (wasFastForwarded && newMazeEachRun) {
-    const { mazeCols, mazeRows } = CONFIG;
-    fitCanvas(mazeCanvas, mazeCols, mazeRows);
-    const previewMaze = createMazeBundle(mazeCols, mazeRows);
-    drawMaze(mazeCanvas.getContext("2d"), previewMaze.grid, getCreatureOption().singular, {
-      cellSize: previewMaze.cellSize,
-      padding: previewMaze.padding,
-    });
-  }
+  latestRunRecords.set(
+    getRunRecordsKey(assignmentType),
+    finishedRecords.map((record) => ({ ...record }))
+  );
 
   statusEl.textContent = `Done! ${totalRuns} runs completed.`;
 }
 
 function resetAll() {
+  latestRunRecords.clear();
   finishedRecords = [];
   mazeMemory = new Set();
   resetPairTracker();
@@ -658,6 +688,7 @@ function resetAll() {
   const { mazeCols, mazeRows } = CONFIG;
   fitCanvas(mazeCanvas, mazeCols, mazeRows);
   const bundle = createMazeBundle(mazeCols, mazeRows);
+  displayedMazeBundle = bundle;
   drawMaze(mazeCanvas.getContext("2d"), bundle.grid, getCreatureOption().singular, {
     cellSize: bundle.cellSize,
     padding: bundle.padding,
@@ -694,14 +725,18 @@ resetBtn.addEventListener("click", () => {
 function requestFastForward() {
   if (!isRunning || fastForwardRequested) return;
   fastForwardRequested = true;
+  drawMazeWithoutRunners();
   updateFastForwardButton();
   statusEl.textContent = "Fast-forwarding…";
 }
 
 document.querySelectorAll('input[name="assignment"]').forEach((el) => {
   el.addEventListener("change", () => {
-    if (!isRunning) setupCharts(getAssignmentType(), randomMazeEachRun());
     resetPValueAndSummary();
+    if (!isRunning) {
+      setupCharts(getAssignmentType(), randomMazeEachRun());
+      restoreLatestRun(getAssignmentType());
+    }
     if (chartMode === "multi") {
       histograms.syncFromRecords(diffRecords, getAssignmentType());
     }
@@ -713,6 +748,7 @@ chartButtons.forEach((button) => {
     if (isRunning) return;
     chartMode = button.dataset.mode;
     setupCharts(getAssignmentType(), randomMazeEachRun());
+    restoreLatestRun(getAssignmentType());
     refreshSummary(getAssignmentType(), randomMazeEachRun());
   });
 });
