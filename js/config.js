@@ -24,12 +24,12 @@ export const CONFIG = {
   // measurement (like reaction time) clusters around a typical value with
   // random variation on either side.
   // ---------------------------------------------------------------------
-  timeMean: 26,
+  timeMean: 36,
   timeStdDev: 4,
 
   /** No individual is ever shown finishing faster than this or slower than this. */
   timeFloor: 8,
-  timeCeiling: 55,
+  timeCeiling: 90,
 
   // ---------------------------------------------------------------------
   // The drug effect — the thing the "experiment" is trying to detect.
@@ -46,7 +46,7 @@ export const CONFIG = {
    * matched-pairs designs strip out much of that noise, so they reveal the
    * same true effect far more reliably at the same sample size.
    */
-  drugTimeReduction: 3,
+  drugTimeReduction: 2.5,
   /** Individual-to-individual variation in how well the drug works for them. */
   drugTimeNoise: 1,
 
@@ -112,13 +112,13 @@ export const CONFIG = {
   // ---------------------------------------------------------------------
   // Histogram bin settings
   // ---------------------------------------------------------------------
-  binWidth: 3,
+  binWidth: 2,
   binMin: 0,
   binMax: 48,
 
   /** Matched pairs: histogram of (control time − drug time) per individual */
   diffBinWidth: 2,
-  diffBinWidthMultiGraph:1,
+  diffBinWidthMultiGraph: 1,
   diffBinMin: -12,
   diffBinMax: 12,
 

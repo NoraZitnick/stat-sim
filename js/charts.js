@@ -22,16 +22,11 @@ const meanMarkerPlugin = {
   id: "meanMarker",
   afterDatasetsDraw(chart) {
     const meanValue = chart.$meanValue;
-    const binMin = chart.$meanBinMin;
-    const binWidth = chart.$meanBinWidth;
-    if (!Number.isFinite(meanValue) || !Number.isFinite(binMin) || !Number.isFinite(binWidth)) return;
+    if (!Number.isFinite(meanValue)) return;
 
     const xScale = chart.scales.x;
     const { left, right, top, bottom } = chart.chartArea;
-    const binPosition = (meanValue - binMin) / binWidth - 0.5;
-    const firstCenter = xScale.getPixelForValue(0);
-    const secondCenter = xScale.getPixelForValue(1);
-    const xPosition = Math.max(left, Math.min(right, firstCenter + binPosition * (secondCenter - firstCenter)));
+    const xPosition = Math.max(left, Math.min(right, xScale.getPixelForValue(meanValue)));
     const { ctx } = chart;
 
     ctx.save();
@@ -68,8 +63,6 @@ Chart.register(meanMarkerPlugin);
 
 function setMeanMarker(chart, values, binSpec, binWidth) {
   chart.$meanValue = values.length > 0 ? mean(values) : null;
-  chart.$meanBinMin = binSpec.edges[0]?.start;
-  chart.$meanBinWidth = binWidth;
 }
 
 function runHistoryColors(edges, creature) {
@@ -114,15 +107,68 @@ function setInfoTooltip(container, text) {
 function updateChart(chart) {
   chart.update("none");
   setTimeout(() => {
-    // The chart may have been destroy()ed (reset, or a new run/assignment type
-    // switched charts) before this fires — Chart.js nulls out .canvas on destroy.
-    if (!chart.canvas) return;
+    // A chart may be destroyed or detached by a mode switch before this fires.
+    if (!chart.canvas?.isConnected) return;
     chart.resize();
     chart.update();
   }, 0);
 }
 
-function stackedOptions(xTitle = "Time (s)", yTitle = "Count") {
+function getAxisDomain(edges, binWidth, maxTicks) {
+  const minValue = edges[0].start;
+  const maxValue = edges[edges.length - 1].end;
+  let stepSize = binWidth;
+
+  while (true) {
+    const min = Math.floor(minValue / stepSize) * stepSize;
+    const max = Math.ceil(maxValue / stepSize) * stepSize;
+    if ((max - min) / stepSize + 1 <= maxTicks) return { min, max, stepSize };
+    stepSize += binWidth;
+  }
+}
+
+function numericAxisOptions(title, edges, binWidth, maxTicks) {
+  const domain = getAxisDomain(edges, binWidth, maxTicks);
+  return {
+    type: "linear",
+    offset: false,
+    min: domain.min,
+    max: domain.max,
+    title: { display: true, text: title },
+    grid: { offset: false },
+    ticks: {
+      stepSize: domain.stepSize,
+      maxRotation: 0,
+      minRotation: 0,
+      autoSkip: false,
+      maxTicksLimit: maxTicks,
+      font: { size: 9 },
+    },
+  };
+}
+
+function updateNumericAxis(chart, edges, binWidth) {
+  const xAxis = chart.options.scales.x;
+  const domain = getAxisDomain(edges, binWidth, xAxis.ticks.maxTicksLimit);
+  xAxis.min = domain.min;
+  xAxis.max = domain.max;
+  xAxis.ticks.stepSize = domain.stepSize;
+}
+
+function binPoints(edges, getCount) {
+  return edges.map((edge) => ({
+    x: (edge.start + edge.end) / 2,
+    y: getCount(edge),
+    start: edge.start,
+    end: edge.end,
+  }));
+}
+
+function binRangeLabel(point, title) {
+  return `${title}: ${point.start}–${point.end}s`;
+}
+
+function stackedOptions(binSpec, binWidth, xTitle = "Time (s)", yTitle = "Count") {
   return {
     responsive: true,
     maintainAspectRatio: false,
@@ -135,7 +181,7 @@ function stackedOptions(xTitle = "Time (s)", yTitle = "Count") {
       },
       tooltip: {
         callbacks: {
-          title: (items) => `Time: ${items[0]?.label ?? ""}`,
+          title: (items) => binRangeLabel(items[0]?.raw, "Time"),
           label: (ctx) => `${ctx.dataset.label}: ${ctx.parsed.y} individual${ctx.parsed.y === 1 ? "" : "es"}`,
         },
       },
@@ -143,22 +189,22 @@ function stackedOptions(xTitle = "Time (s)", yTitle = "Count") {
     scales: {
       x: {
         stacked: true,
-        title: { display: true, text: xTitle },
-        ticks: { maxRotation: 0, minRotation: 0, autoSkip: true, maxTicksLimit: 6, font: { size: 9 } },
+        ...numericAxisOptions(xTitle, binSpec.edges, binWidth, 6),
       },
       y: {
         stacked: true,
         beginAtZero: true,
+        min: 0,
         ticks: { stepSize: 1, font: { size: 9 } },
         title: { display: true, text: yTitle },
-        max: max_count,
+        max: Math.max(1, max_count),
       },
     },
   };
 }
 
 function formatBinLabel(start, end) {
-  return `${start}–${end}s`;
+  return `${start}`;
 }
 
 function makeTimeBins(binMin = CONFIG.binMin, binMax = CONFIG.binMax) {
@@ -196,7 +242,7 @@ function expandBinsToCoverValue(edges, currentSpec, value, width, makeBins, copy
 
   const newBinMin = needsLowerExpansion
     ? Math.floor((value - width) / width) * width
-    : Math.floor((minStart - width) / width) * width;
+    : minStart;
   const newBinMax = needsUpperExpansion
     ? Math.ceil((value + width) / width) * width
     : Math.ceil((maxEnd + width) / width) * width;
@@ -264,22 +310,27 @@ function buildSeparateHistogramChart(canvas, binSpec, values, label, color) {
       datasets: [
         {
           label,
-          data: values.map(() => 0),
+          data: binPoints(binSpec.edges, (_, index) => values[index]),
           backgroundColor: color + "cc",
           borderColor: color,
           borderWidth: 1,
+          // barThickness: "flex",
+          // categoryPercentage: 0.9,
+          // barPercentage: 0.95,
         },
       ],
     },
-    options: stackedOptions(),
+    options: stackedOptions(binSpec, CONFIG.binWidth),
   });
   return chart;
 }
 
 function syncSeparateCharts(charts, edges) {
-  charts.drug.data.datasets[0].data = edges.map((e) => e.drug);
-  charts.control.data.datasets[0].data = edges.map((e) => e.control);
-  max_count = Math.max(...edges.map((e) => e.control), ...edges.map((e) => e.drug));
+  charts.drug.data.datasets[0].data = binPoints(edges, (edge) => edge.drug);
+  charts.control.data.datasets[0].data = binPoints(edges, (edge) => edge.control);
+  updateNumericAxis(charts.drug, edges, CONFIG.binWidth);
+  updateNumericAxis(charts.control, edges, CONFIG.binWidth);
+  max_count = Math.max(1, ...edges.map((e) => e.control), ...edges.map((e) => e.drug));
   charts.drug.options.scales.y.max = max_count;
   charts.control.options.scales.y.max = max_count;
   updateChart(charts.drug);
@@ -298,8 +349,10 @@ function syncBlockCharts(charts) {
   max_count = sharedMax;
 
   for (const entry of charts) {
-    entry.charts.drug.data.datasets[0].data = entry.edges.map((e) => e.drug);
-    entry.charts.control.data.datasets[0].data = entry.edges.map((e) => e.control);
+    entry.charts.drug.data.datasets[0].data = binPoints(entry.edges, (edge) => edge.drug);
+    entry.charts.control.data.datasets[0].data = binPoints(entry.edges, (edge) => edge.control);
+    updateNumericAxis(entry.charts.drug, entry.edges, CONFIG.binWidth);
+    updateNumericAxis(entry.charts.control, entry.edges, CONFIG.binWidth);
     entry.charts.drug.options.scales.y.max = sharedMax;
     entry.charts.control.options.scales.y.max = sharedMax;
     updateChart(entry.charts.drug);
@@ -615,10 +668,13 @@ export class HistogramDifference {
         datasets: [
           {
             label: "Individuals",
-            data: this.edges.map(() => 0),
+            data: binPoints(this.edges, (edge) => edge.count),
             backgroundColor: "#2563ebcc",
             borderColor: "#2563eb",
             borderWidth: 1,
+            // barThickness: "flex",
+            // categoryPercentage: 0.9,
+            // barPercentage: 0.95,
           },
         ],
       },
@@ -630,25 +686,28 @@ export class HistogramDifference {
           legend: { display: false },
           tooltip: {
             callbacks: {
-              title: (items) => `Difference: ${items[0]?.label ?? ""}s`,
+              title: (items) => binRangeLabel(items[0]?.raw, "Difference"),
               label: (ctx) => `${ctx.parsed.y} individual${ctx.parsed.y === 1 ? "" : "es"}`,
             },
           },
         },
         scales: {
           x: {
-            title: { display: true, text: "Difference (s)" },
-            ticks: { maxRotation: 0, minRotation: 0, autoSkip: true, maxTicksLimit: 8, font: { size: 9 } },
+            ...numericAxisOptions("Difference (s)", this.binSpec.edges, CONFIG.diffBinWidth, 8),
           },
           y: {
             beginAtZero: true,
+            min: 0,
             ticks: { stepSize: 1, font: { size: 9 } },
             title: { display: true, text: "Count" },
           },
         },
       },
     });
-    requestAnimationFrame(() => this.chart.resize());
+    const chart = this.chart;
+    requestAnimationFrame(() => {
+      if (chart.canvas?.isConnected) chart.resize();
+    });
   }
 
   setTitles() {}
@@ -680,7 +739,8 @@ export class HistogramDifference {
     this.edges[idx].count += 1;
     this.rawDiffs.push(diff);
 
-    this.chart.data.datasets[0].data = this.edges.map((e) => e.count);
+    this.chart.data.datasets[0].data = binPoints(this.edges, (edge) => edge.count);
+    updateNumericAxis(this.chart, this.edges, CONFIG.diffBinWidth);
     updateChart(this.chart);
     this.updateStats();
   }
@@ -712,7 +772,8 @@ export class HistogramDifference {
     this.binSpec = workingSpec;
     this.edges = workingEdges;
     this.chart.data.labels = this.binSpec.labels;
-    this.chart.data.datasets[0].data = this.edges.map((e) => e.count);
+    this.chart.data.datasets[0].data = binPoints(this.edges, (edge) => edge.count);
+    updateNumericAxis(this.chart, this.edges, CONFIG.diffBinWidth);
     updateChart(this.chart);
     this.updateStats();
   }
@@ -720,7 +781,8 @@ export class HistogramDifference {
   reset() {
     this.edges.forEach((e) => (e.count = 0));
     this.rawDiffs = [];
-    this.chart.data.datasets[0].data = this.edges.map(() => 0);
+    this.chart.data.datasets[0].data = binPoints(this.edges, () => 0);
+    updateNumericAxis(this.chart, this.edges, CONFIG.diffBinWidth);
     updateChart(this.chart);
     this.updateStats();
   }
@@ -771,10 +833,13 @@ export class HistogramRunHistory {
           labels: binSpec.labels,
           datasets: [{
             label: "Frequency",
-            data: edges.map(() => 0),
+            data: binPoints(edges, (edge) => edge.count),
             backgroundColor: runHistoryColors(edges, creature).background,
             borderColor: runHistoryColors(edges, creature).border,
             borderWidth: 1,
+            // barThickness: "flex",
+            // categoryPercentage: 0.9,
+            // barPercentage: 0.95,
           }],
         },
         options: {
@@ -785,18 +850,18 @@ export class HistogramRunHistory {
             legend: { display: false },
             tooltip: {
               callbacks: {
-                title: (items) => `Difference: ${items[0]?.label ?? ""}s`,
+                title: (items) => binRangeLabel(items[0]?.raw, "Difference"),
                 label: (ctx) => `${ctx.parsed.y} run${ctx.parsed.y === 1 ? "" : "s"}`,
               },
             },
           },
           scales: {
             x: {
-              title: { display: true, text: "Difference (s)" },
-              ticks: { maxRotation: 0, minRotation: 0, autoSkip: true, maxTicksLimit: 8, font: { size: 9 } },
+              ...numericAxisOptions("Difference (s)", binSpec.edges, CONFIG.diffBinWidthMultiGraph, 8),
             },
             y: {
               beginAtZero: true,
+              min: 0,
               ticks: { stepSize: 1, font: { size: 9 } },
               title: { display: true, text: "Frequency" },
             },
@@ -838,7 +903,8 @@ export class HistogramRunHistory {
       state.binSpec = workingSpec;
       state.edges = workingEdges;
       state.chart.data.labels = workingSpec.labels;
-      state.chart.data.datasets[0].data = workingEdges.map((edge) => edge.count);
+      state.chart.data.datasets[0].data = binPoints(workingEdges, (edge) => edge.count);
+      updateNumericAxis(state.chart, workingEdges, CONFIG.diffBinWidthMultiGraph);
       const colors = runHistoryColors(workingEdges, creature);
       state.chart.data.datasets[0].backgroundColor = colors.background;
       state.chart.data.datasets[0].borderColor = colors.border;
