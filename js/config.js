@@ -8,13 +8,13 @@
  * individuals — it's a model we designed so the statistics lessons (confounding,
  * blocking, matched pairs, p-values) show up clearly in the results.
  */
-
+const animTimeScale = 0.1; 
 export const CONFIG = {
   // ---------------------------------------------------------------------
   // The maze itself
   // ---------------------------------------------------------------------
-  mazeCols: 15,
-  mazeRows: 15,
+  mazeCols: 10,
+  mazeRows: 10,
   numBlocks: 2,
 
   // ---------------------------------------------------------------------
@@ -106,21 +106,21 @@ export const CONFIG = {
   // ---------------------------------------------------------------------
   // Animation pacing (purely visual — does not affect any statistics)
   // ---------------------------------------------------------------------
-  animTimeScale: 0.5,
+  animTimeScale: animTimeScale,
   pauseBetweenRuns: 200,
 
   // ---------------------------------------------------------------------
   // Histogram bin settings
   // ---------------------------------------------------------------------
-  binWidth: 2,
+  binWidth: 2*animTimeScale,
   binMin: 0,
-  binMax: 48,
+  binMax: 48*animTimeScale, 
 
   /** Matched pairs: histogram of (control time − drug time) per individual */
-  diffBinWidth: 2,
-  diffBinWidthMultiGraph: 1,
-  diffBinMin: -12,
-  diffBinMax: 12,
+  diffBinWidth: 2*animTimeScale,
+  diffBinWidthMultiGraph: 1*animTimeScale,
+  diffBinMin: -12*animTimeScale,
+  diffBinMax: 12*animTimeScale,
 
   // ---------------------------------------------------------------------
   // Performance safety caps (not statistics — just guardrails so the app
@@ -186,6 +186,10 @@ export function shuffle(array) {
 
 export function round1(n) {
   return Math.round(n * 10) / 10;
+}
+
+export function round2(n) {
+  return Math.round(n * 100) / 100;
 }
 
 export function mean(values) {

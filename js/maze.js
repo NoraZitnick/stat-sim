@@ -279,6 +279,7 @@ export function drawMaze(ctx, grid, individualName, options = {}) {
 export function drawIndividualSprite(ctx, { px, py, angle, fur, shellColor, limbColor, antColor, hasDrug, finished }, individualName = "mouse") {
   if (finished) return;
   if (individualName === "ant") {
+    
     const bodyColor = antColor ?? fur.fur;
     const darker = bodyColor;
     const headColor = bodyColor;

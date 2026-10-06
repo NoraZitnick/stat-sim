@@ -237,14 +237,9 @@ export function summarizeResults(records, assignmentType, randomMazeEachRun) {
     if (diffs.length === 0) return "Waiting for paired differences…";
 
     currentDiff = round1(mean(diffs));
-    const learningNote =
-      !randomMazeEachRun
-        ? " Same maze reused — 2nd runs include a learning effect (not from the drug)."
-        : "";
-
+    const speedDiff = currentDiff > 0 ? "faster" : "slower";
     return (
-      `Mean paired difference: ${currentDiff}s (control − drug). ` +
-      learningNote
+      `Drugged runs were <b>${Math.abs(currentDiff)}s</b> ${speedDiff} than control runs on average. `
     );
   }
 
@@ -259,7 +254,8 @@ export function summarizeResults(records, assignmentType, randomMazeEachRun) {
         const drugMean = round1(mean(drugTimes));
         const controlMean = round1(mean(controlTimes));
         currentDiff = round1(controlMean - drugMean);
-        return `${blockName(block)} Control Mean - Drug Mean: ${currentDiff}s`;
+        const speedDiff = currentDiff > 0 ? "faster" : "slower";
+        return `${blockName(block)} drugged ${getCreatureGroupMeta().units} were <b>${Math.abs(currentDiff)}s</b> ${speedDiff} than control ${getCreatureGroupMeta().units} on average.`;
       });
 
     return parts.length > 0 ? parts.join("\n") : "Waiting for data…";
@@ -275,8 +271,9 @@ export function summarizeResults(records, assignmentType, randomMazeEachRun) {
   const controlMean = round1(mean(controlTimes));
   const drugMean = round1(mean(drugTimes));
   currentDiff = round1(controlMean - drugMean);
+  const speedDiff = currentDiff > 0 ? "faster" : "slower";
 
-  return `Control Mean - Drug Mean: ${currentDiff}s.`;
+  return `Drugged ${getCreatureGroupMeta().units} were <b>${Math.abs(currentDiff)}s</b> ${speedDiff} than control ${getCreatureGroupMeta().units} on average.`;
 }
 
 function formatPValue(p) {

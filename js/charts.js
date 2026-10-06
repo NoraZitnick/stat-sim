@@ -14,7 +14,7 @@
  * otherwise have to compute by hand from the bars.
  */
 
-import { CONFIG, getCreatureBlocks, GROUP_COLORS, mean, round1, stdDev } from "./config.js";
+import { CONFIG, getCreatureBlocks, GROUP_COLORS, mean, round1, round2, stdDev } from "./config.js";
 
 let max_count = 0;
 
@@ -40,7 +40,7 @@ const meanMarkerPlugin = {
     ctx.stroke();
     ctx.setLineDash([]);
     ctx.font = "600 11px sans-serif";
-    const label = `Mean: ${round1(meanValue)}s`;
+    const label = `Mean: ${round2(meanValue)}s`;
     const labelWidth = ctx.measureText(label).width + 10;
     const labelHeight = 20;
     const labelLeft = Math.max(left, Math.min(right - labelWidth, xPosition + 5 + labelWidth <= right ? xPosition + 5 : xPosition - labelWidth - 5));
@@ -75,7 +75,7 @@ function runHistoryColors(edges, creature) {
 
 function formatStats(values) {
   if (values.length === 0) return "No data yet";
-  return `n = ${values.length}\nMean = ${round1(mean(values))}s\nSD = ${round1(stdDev(values))}s`;
+  return `n = ${values.length}\nMean = ${round2(mean(values))}s\nSD = ${round2(stdDev(values))}s`;
 }
 
 function infoIconMarkup() {
@@ -165,7 +165,7 @@ function binPoints(edges, getCount) {
 }
 
 function binRangeLabel(point, title) {
-  return `${title}: ${point.start}–${point.end}s`;
+  return `${title}: ${round1(point.start)}–${round1(point.end)}s`;
 }
 
 function stackedOptions(binSpec, binWidth, xTitle = "Time (s)", yTitle = "Count") {
@@ -874,7 +874,14 @@ export class HistogramRunHistory {
 
   syncFromRecords(records, assignmentType = this.assignmentType, creature = this.creature) {
     this.setAssignment(assignmentType, creature);
-    const runRecords = records[assignmentType === "random" ? 0 : assignmentType === "block" ? 1 : 2].slice(1);
+    const runRecords = records[assignmentType === "random" ? 0 : assignmentType === "block" ? 1 : 2]
+      .slice(1)
+      .map((run) => Array.isArray(run)
+        ? run.map((entry) => ({
+          ...entry,
+          difference: entry.difference * CONFIG.animTimeScale,
+        }))
+        : run * CONFIG.animTimeScale);
 
     for (const state of this.charts) {
       const values = state.block === null
@@ -916,6 +923,14 @@ export class HistogramRunHistory {
   updateStats(state) {
     setMeanMarker(state.chart, state.rawDiffs, state.binSpec, CONFIG.diffBinWidthMultiGraph);
     setInfoTooltip(state.chart.canvas.closest(".chart-box"), formatStats(state.rawDiffs));
+  }
+
+  getFasterRunCounts() {
+    return this.charts.map((state) => ({
+      title: state.title,
+      total: state.rawDiffs.length,
+      faster: state.rawDiffs.filter((difference) => difference > 0).length,
+    }));
   }
 
   reset() {

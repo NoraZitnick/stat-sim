@@ -226,21 +226,25 @@ function ingestRunRecords(records, assignmentType) {
       }
     }
     if (newDiffs.length === 1) {
-      histograms.addDifference(newDiffs[0]);
+      histograms.addDifference(newDiffs[0] * CONFIG.animTimeScale);
     } else if (newDiffs.length > 1) {
-      histograms.addDifferencesBatch(newDiffs);
+      histograms.addDifferencesBatch(newDiffs.map((difference) => difference * CONFIG.animTimeScale));
     }
     return;
   }
 
   finishedRecords.push(...records);
+  const plottedRecords = records.map((record) => ({
+    ...record,
+    time: record.time * CONFIG.animTimeScale,
+  }));
 
-  if (records.length > 10) {
-    histograms.addResultsBatch(records);
+  if (plottedRecords.length > 10) {
+    histograms.addResultsBatch(plottedRecords);
   } else if (usesBlockCharts(assignmentType)) {
-    records.forEach((rec) => histograms.addResult(rec.group, rec.time, rec.block));
+    plottedRecords.forEach((rec) => histograms.addResult(rec.group, rec.time, rec.block));
   } else {
-    records.forEach((rec) => histograms.addResult(rec.group, rec.time));
+    plottedRecords.forEach((rec) => histograms.addResult(rec.group, rec.time));
   }
 }
 
@@ -259,9 +263,14 @@ function restoreLatestRun(assignmentType) {
   if (!records) return;
 
   if (usesMatchedDifference(assignmentType)) {
-    histograms.addDifferencesBatch(finishedRecords.map((record) => record.time));
+    histograms.addDifferencesBatch(
+      finishedRecords.map((record) => record.time * CONFIG.animTimeScale)
+    );
   } else {
-    histograms.addResultsBatch(finishedRecords);
+    histograms.addResultsBatch(finishedRecords.map((record) => ({
+      ...record,
+      time: record.time * CONFIG.animTimeScale,
+    })));
   }
   refreshSummary(assignmentType, randomMazeEachRun());
 }
@@ -323,18 +332,18 @@ function setupCharts(assignmentType, newMazeEachRun) {
 function refreshSummary(assignmentType, newMazeEachRun) {
   let text = summarizeResults(finishedRecords, assignmentType, newMazeEachRun);
   if (chartMode !== "multi") {
-    summaryEl.textContent = text;
-    pvalueEl.textContent = describeSignificance(finishedRecords, assignmentType);
+    summaryEl.innerHTML = text;
+    pvalueEl.innerHTML = describeSignificance(finishedRecords, assignmentType);
   }
   if (chartMode === "multi") {
-    pvalueEl.textContent = "";
+    pvalueEl.innerHTML = "";
     histograms.syncFromRecords(diffRecords, assignmentType);
     renderRunCountBox();
   }
 }
 
 function renderRunCountBox() {
-    summaryEl.textContent = "";
+    summaryEl.innerHTML = "";
     let label = document.createElement("label");
     label.className = "multi-run-count-field";
     let runCountBox = document.createElement("input");
@@ -343,13 +352,30 @@ function renderRunCountBox() {
     runCountBox.max = 1000;
     runCountBox.id = "multi-run-count";
     runCountBox.step = 2;
+
+    runCountBox.addEventListener("change", () => {
+      addRuns(parseInt(runCountBox.value, 0));
+    });
+      const runCounts = histograms.getFasterRunCounts();
+      const runSummaries = runCounts
+        .filter(({ total }) => total > 0)
+        .map(({ title, total, faster }) => {
+          const percent = Math.round((faster / total) * 100);
+          const scope = title === "Recorded run differences"
+            ? "runs"
+            : `${title.replace(" block differences", " block")} runs`;
+          return `In <b>${percent}%</b> of ${scope}, drugged ${getCreatureOption().plural} were faster.`;
+        });
+      if (runSummaries.length > 0) {
+        const summary = document.createElement("p");
+        summary.className = "multi-run-summary-text";
+        summary.innerHTML = runSummaries.join("\n");
+        summaryEl.appendChild(summary);
+      }
     label.appendChild(runCountBox);
     summaryEl.appendChild(label);
     runCountBox.insertAdjacentHTML('afterend', '<span class="side-text"> experiments to graph</span>');
     runCountBox.insertAdjacentHTML('beforebegin', '<span class="side-text"> Add </span>');
-    runCountBox.addEventListener("change", () => {
-      addRuns(parseInt(runCountBox.value, 0));
-    });
 }
 
 async function addRuns(runs) {
@@ -410,21 +436,14 @@ function rememberPath(path) {
   }
 }
 
-function prepareRunner(run, mazeBundle, assignmentType, newMazeEachRun, fastMode) {
+function prepareRunner(run, mazeBundle, assignmentType, newMazeEachRun) {
   const { grid, start, end } = mazeBundle;
 
-  const isRepeatMaze =
-    !newMazeEachRun && assignmentType === "matched" && run.phase === 2;
+  const isRepeatMaze = false;
 
   const knownCells = isRepeatMaze ? mazeMemory : null;
 
-  // Fast-forward mode skips the wandering search and takes the shortest
-  // path instead — nobody watches the animation during fast-forward, so
-  // nothing is lost, and it avoids running the (slower) search for every
-  // single individual when simulating a large sample.
-  const path = fastMode
-    ? mazeBundle.shortestPath
-    : exploreMazePath(grid, start, end, knownCells);
+  const path = exploreMazePath(grid, start, end, knownCells);
 
   const metrics = computeRunMetrics(run.individual, {
     hasDrug: run.hasDrug,
@@ -477,7 +496,7 @@ async function bulkSimulateRuns(runs, assignmentType, newMazeEachRun, mazeCache)
     }
 
     const mazeBundle = getMazeFromCache(run, assignmentType, mazeCache);
-    const runner = prepareRunner(run, mazeBundle, assignmentType, newMazeEachRun, true);
+    const runner = prepareRunner(run, mazeBundle, assignmentType, newMazeEachRun);
     pending.push({
       group: runner.run.group,
       time: runner.completionTime,
@@ -543,7 +562,7 @@ async function runSimulation(fastMode = false) {
     const { grid } = mazeBundle;
 
     const runners = batch.map((run) =>
-      prepareRunner(run, mazeBundle, assignmentType, newMazeEachRun, false)
+      prepareRunner(run, mazeBundle, assignmentType, newMazeEachRun)
     );
 
     const isMulti = batch.length > 1;
@@ -651,6 +670,7 @@ async function runSimulation(fastMode = false) {
   );
   if (chartMode === "multi") {
     histograms.syncFromRecords(diffRecords, assignmentType, getCreatureOption().singular);
+    renderRunCountBox();
   }
   console.log("All diffs recorded:", diffRecords);
   setControlsEnabled(true);
@@ -739,6 +759,7 @@ document.querySelectorAll('input[name="assignment"]').forEach((el) => {
     }
     if (chartMode === "multi") {
       histograms.syncFromRecords(diffRecords, getAssignmentType());
+      renderRunCountBox();
     }
   });
 });
