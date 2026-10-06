@@ -112,15 +112,15 @@ export const CONFIG = {
   // ---------------------------------------------------------------------
   // Histogram bin settings
   // ---------------------------------------------------------------------
-  binWidth: 2*animTimeScale,
+  binWidth: round1(2 * animTimeScale),
   binMin: 0,
-  binMax: 48*animTimeScale, 
+  binMax: round1(48 * animTimeScale),
 
   /** Matched pairs: histogram of (control time − drug time) per individual */
-  diffBinWidth: 2*animTimeScale,
-  diffBinWidthMultiGraph: 1*animTimeScale,
-  diffBinMin: -12*animTimeScale,
-  diffBinMax: 12*animTimeScale,
+  diffBinWidth: round1(2 * animTimeScale),
+  diffBinWidthMultiGraph: round1(1 * animTimeScale),
+  diffBinMin: round1(-12 * animTimeScale),
+  diffBinMax: round1(12 * animTimeScale),
 
   // ---------------------------------------------------------------------
   // Performance safety caps (not statistics — just guardrails so the app

@@ -12,7 +12,7 @@
  *      statistics stay easy to reason about.
  */
 
-import { CONFIG, BLOCK_FUR, TURTLE_SHELLS, ANT_COLONIES, GROUP_COLORS, randomNormal, shuffle, round1, mean } from "./config.js";
+import { CONFIG, BLOCK_FUR, TURTLE_SHELLS, ANT_COLONIES, GROUP_COLORS, randomNormal, shuffle, round1, mean, round2 } from "./config.js";
 import { welchTTest, pairedTTest } from "./inference.js";
 
 let currentDiff = 0;
@@ -239,7 +239,7 @@ export function summarizeResults(records, assignmentType, randomMazeEachRun) {
     currentDiff = round1(mean(diffs));
     const speedDiff = currentDiff > 0 ? "faster" : "slower";
     return (
-      `Drugged runs were <b>${Math.abs(currentDiff)}s</b> ${speedDiff} than control runs on average. `
+      `Drugged runs were <b>${round2(Math.abs(currentDiff) * CONFIG.animTimeScale)}s</b> ${speedDiff} than control runs on average. `
     );
   }
 
@@ -255,7 +255,7 @@ export function summarizeResults(records, assignmentType, randomMazeEachRun) {
         const controlMean = round1(mean(controlTimes));
         currentDiff = round1(controlMean - drugMean);
         const speedDiff = currentDiff > 0 ? "faster" : "slower";
-        return `${blockName(block)} drugged ${getCreatureGroupMeta().units} were <b>${Math.abs(currentDiff)}s</b> ${speedDiff} than control ${getCreatureGroupMeta().units} on average.`;
+        return `${blockName(block)} drugged ${getCreatureGroupMeta().units} were <b>${round2(Math.abs(currentDiff) * CONFIG.animTimeScale)}s</b> ${speedDiff} than control ${getCreatureGroupMeta().units} on average.`;
       });
 
     return parts.length > 0 ? parts.join("\n") : "Waiting for data…";
@@ -273,7 +273,7 @@ export function summarizeResults(records, assignmentType, randomMazeEachRun) {
   currentDiff = round1(controlMean - drugMean);
   const speedDiff = currentDiff > 0 ? "faster" : "slower";
 
-  return `Drugged ${getCreatureGroupMeta().units} were <b>${Math.abs(currentDiff)}s</b> ${speedDiff} than control ${getCreatureGroupMeta().units} on average.`;
+  return `Drugged ${getCreatureGroupMeta().units} were <b>${round2(Math.abs(currentDiff) * CONFIG.animTimeScale)}s</b> ${speedDiff} than control ${getCreatureGroupMeta().units} on average.`;
 }
 
 function formatPValue(p) {
