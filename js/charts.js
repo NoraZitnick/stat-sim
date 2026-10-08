@@ -120,8 +120,9 @@ function getAxisDomain(edges, binWidth, maxTicks) {
   let stepSize = binWidth;
 
   while (true) {
-    const min = Math.floor(minValue / stepSize) * stepSize;
-    const max = Math.ceil(maxValue / stepSize) * stepSize;
+    stepSize = round2(stepSize);
+    const min = round2(Math.floor(minValue / stepSize) * stepSize);
+    const max = round2(Math.ceil(maxValue / stepSize) * stepSize);
     if ((max - min) / stepSize + 1 <= maxTicks) return { min, max, stepSize };
     stepSize += binWidth;
   }
