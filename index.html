@@ -34,7 +34,7 @@
         <label class="field">
           <span id="sample-size-label">Sample size (number of mice)</span>
           <input type="number" id="sample-size" min="4" max="300" value="20" step="2" />
-          <small>Use the Fast forward button below to skip the animation.</small>
+          <small font-size="0.8rem">Use the Fast forward button below to skip the animation.</small>
         </label>
 
         <label class="field toggle-field">
@@ -43,26 +43,25 @@
         </label>
 
         <fieldset class="field">
-          <legend>Assignment method</legend>
+          <legend class = "stronger">Assignment method</legend>
 
           <label class="radio">
             <input type="radio" name="assignment" value="random" checked />
             <span>
-              <strong>Random assignment</strong>
+              Random assignment
             </span>
           </label>
 
           <label class="radio">
             <input type="radio" name="assignment" value="block" />
-            <span>
-              <strong id="block-assignment-label">Block assignment (by block)</strong>
+            <span id="block-assignment-label">Block assignment (by block)
             </span>
           </label>
 
           <label class="radio">
             <input type="radio" name="assignment" value="matched" />
             <span>
-              <strong>Matched pairs (each mouse runs twice)</strong>
+              Matched pairs (each mouse runs twice)
             </span>
           </label>
         </fieldset>
