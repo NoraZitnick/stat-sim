@@ -1,4 +1,4 @@
-# Maze Individual Drug Study — AP Statistics Simulation
+# Maze Individual Drug Study — Statistics Simulation
 
 An interactive web simulation for learning **random assignment**, **blocking**, and **matched pairs** in experimental design.
 
@@ -42,7 +42,7 @@ stat-sim/
     └── charts.js       # Chart.js histograms
 ```
 
-## Key ideas (AP Stats)
+## Key ideas (Stats)
 
 1. **Confounding** — Blocks differ in natural speed. If drug assignment isn't balanced across blocks, block can hide or fake a treatment effect.
 2. **Blocking** — Assign treatment within each block so groups are comparable.

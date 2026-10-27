@@ -197,7 +197,7 @@ export function mean(values) {
   return values.reduce((a, b) => a + b, 0) / values.length;
 }
 
-/** Sample standard deviation (n-1 denominator) — the version taught in AP Stats. */
+/** Sample standard deviation (n-1 denominator) — the version taught in Stats. */
 export function stdDev(values) {
   if (values.length < 2) return 0;
   const m = mean(values);

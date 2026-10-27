@@ -144,7 +144,7 @@ function updateCreatureUi(choice) {
     buildBlockLegend();
   }
 
-  document.title = option.title + " — AP Stats Simulation";
+  document.title = option.title + " — Stats Simulation";
 
   resetAll();
 }
