@@ -192,6 +192,12 @@ export function round2(n) {
   return Math.round(n * 100) / 100;
 }
 
+/** "P = 0.032", or "P < 0.001" when it would round to 0. */
+export function formatPValue(p) {
+  const clamped = Math.max(0, Math.min(1, p));
+  return clamped < 0.001 ? "P < 0.001" : `P = ${Math.round(clamped * 1000) / 1000}`;
+}
+
 export function mean(values) {
   if (values.length === 0) return 0;
   return values.reduce((a, b) => a + b, 0) / values.length;

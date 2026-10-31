@@ -12,7 +12,7 @@
  *      statistics stay easy to reason about.
  */
 
-import { CONFIG, BLOCK_FUR, TURTLE_SHELLS, ANT_COLONIES, GROUP_COLORS, randomNormal, shuffle, round1, mean, round2 } from "./config.js";
+import { CONFIG, BLOCK_FUR, TURTLE_SHELLS, getCreatureBlocks, ANT_COLONIES, GROUP_COLORS, randomNormal, shuffle, round1, mean, round2, stdDev, formatPValue } from "./config.js";
 import { welchTTest, pairedTTest } from "./inference.js";
 
 let currentDiff = 0;
@@ -227,8 +227,8 @@ function groupRecordsByBlock(records) {
 }
 
 function blockName(block) {
-  const { label } = getCreatureGroupMeta();
-  return BLOCK_FUR[block]?.name ?? `${label} ${block + 1}`;
+  const { label, unit } = getCreatureGroupMeta();
+  return getCreatureBlocks(unit)[block]?.name ?? `${label} ${block + 1}`;
 }
 
 export function summarizeResults(records, assignmentType, randomMazeEachRun) {
@@ -276,15 +276,9 @@ export function summarizeResults(records, assignmentType, randomMazeEachRun) {
   return `Drugged ${getCreatureGroupMeta().units} were <b>${round2(Math.abs(currentDiff) * CONFIG.animTimeScale)}s</b> ${speedDiff} than control ${getCreatureGroupMeta().units} on average.`;
 }
 
-function formatPValue(p) {
-  const clamped = Math.max(0, Math.min(1, p));
-  const pText = clamped < 0.001 ? "< 0.001" : String(Math.round(clamped * 1000) / 1000);
-  const verdict =
-    clamped < 0.05
-      ? "likely a real effect"
-      : "likely explained by chance";
-
-  return `P = ${pText} — ${verdict}.`;
+function describePValue(p) {
+  const verdict = p < 0.05 ? "statistically significant" : "not statistically significant";
+  return `${formatPValue(p)} — ${verdict}.`;
 }
 
 /**
@@ -302,28 +296,21 @@ function formatPValue(p) {
  *     so the blocks partially cancel each other out rather than compound.
  */
 export function describeSignificance(records, assignmentType) {
+  const results = computeTests(records, assignmentType);
+
   if (assignmentType === "matched") {
-    const diffs = records.filter((r) => r.type === "difference").map((r) => r.time);
-    if (diffs.length < 2) return "P = — (need at least 2 pairs to compute)";
-    const result = pairedTTest(diffs);
-    return result ? formatPValue(result.p) : "";
+    if (results.length === 0) return "P = — (need at least 2 pairs to compute)";
+    return describePValue(results[0].p);
   }
 
   if (assignmentType === "block") {
-    const byBlock = groupRecordsByBlock(records);
-    const results = byBlock.map(({ block, controlTimes, drugTimes }) => {
-      if (controlTimes.length < 2 || drugTimes.length < 2) return null;
-      const result = welchTTest(drugTimes, controlTimes);
-      return result ? { block, p: result.p, t: result.t } : null;
-    });
-
-    if (results.some((r) => r === null)) {
+    if (results.length === 0) {
       const { label } = getCreatureGroupMeta();
       return `P = — (need at least 2 per group in each ${label.toLowerCase()} to compute)`;
     }
 
     const perBlockText = results
-      .map(({ block, p }) => `${blockName(block)}: ${formatPValue(p)}`)
+      .map(({ block, p }) => `${blockName(block)}: ${describePValue(p)}`)
       .join("\n");
 
     const nonZeroSigns = results.map((r) => Math.sign(r.t)).filter((s) => s !== 0);
@@ -344,18 +331,66 @@ export function describeSignificance(records, assignmentType) {
 
     return (
       `${perBlockText} ` +
-      `\nCombined probability: ${formatPValue(combinedClamped)}${combinedNote}`
+      `\nCombined probability: ${describePValue(combinedClamped)}${combinedNote}`
     );
+  }
+
+  if (results.length === 0) {
+    const { units } = getCreatureGroupMeta();
+    return `P = — (need at least 2 ${units} per group to compute)`;
+  }
+  return describePValue(results[0].p);
+}
+
+function sampleSummary(values) {
+  return { n: values.length, mean: mean(values), sd: stdDev(values) };
+}
+
+/** Welch test of drug vs control times, or null when either group has < 2. */
+function compareGroups(drugTimes, controlTimes, block) {
+  const result = welchTTest(drugTimes, controlTimes);
+  if (!result) return null;
+  return {
+    block,
+    ...result,
+    drugFasterDiff: -result.diff,
+    groups: { drug: sampleSummary(drugTimes), control: sampleSummary(controlTimes) },
+  };
+}
+
+/**
+ * The raw t-test results behind describeSignificance — one entry for
+ * random/matched pairs, one per block for block assignment — each
+ * { block, t, df, p, diff, se, drugFasterDiff, groups }. Empty when there
+ * isn't enough data yet (for block assignment, when ANY block is short), so
+ * the p-value text and the p-value chart always agree on when there's
+ * something to show.
+ *
+ * drugFasterDiff is the mean difference re-signed so positive always means
+ * "drug was faster": the Welch tests compare drug − control times, while the
+ * paired test already uses control − drug differences. groups holds the
+ * n / mean / sd of each sample ({ drug, control }, or { pairs } for matched
+ * pairs) for explaining where the standard error came from.
+ */
+export function computeTests(records, assignmentType) {
+  if (assignmentType === "matched") {
+    const diffs = records.filter((r) => r.type === "difference").map((r) => r.time);
+    const result = pairedTTest(diffs);
+    if (!result) return [];
+    return [{ block: null, ...result, drugFasterDiff: result.diff, groups: { pairs: sampleSummary(diffs) } }];
+  }
+
+  if (assignmentType === "block") {
+    const results = groupRecordsByBlock(records).map(({ block, controlTimes, drugTimes }) =>
+      compareGroups(drugTimes, controlTimes, block)
+    );
+    return results.some((r) => r === null) ? [] : results;
   }
 
   const controlTimes = records.filter((r) => r.group === "control").map((r) => r.time);
   const drugTimes = records.filter((r) => r.group === "drug").map((r) => r.time);
-  if (controlTimes.length < 2 || drugTimes.length < 2) {
-    const { units } = getCreatureGroupMeta();
-    return `P = — (need at least 2 ${units} per group to compute)`;
-  }
-  const result = welchTTest(drugTimes, controlTimes);
-  return result ? formatPValue(result.p) : "";
+  const result = compareGroups(drugTimes, controlTimes, null);
+  return result ? [result] : [];
 }
 
 export function getChartLabels(assignmentType, randomMazeEachRun) {

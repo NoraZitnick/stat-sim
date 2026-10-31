@@ -19,6 +19,7 @@ import {
   summarizeResults,
   getBlockDifferences,
   describeSignificance,
+  computeTests,
   getChartLabels,
   usesBlockCharts,
   usesMatchedDifference,
@@ -37,6 +38,7 @@ const chartCaption = document.getElementById("chart-caption");
 const summaryEl = document.getElementById("summary");
 const pvalueEl = document.getElementById("pvalue");
 const chartsGrid = document.getElementById("charts-grid");
+const chartNotes = document.getElementById("chart-notes");
 const chartButtons = document.querySelectorAll(".chart-button");
 
 const CREATURE_OPTIONS = {
@@ -322,7 +324,14 @@ function setupCharts(assignmentType, newMazeEachRun) {
     renderRunCountBox();
   } else {
     histograms.destroy();
-    histograms = createChartManager(assignmentType, chartsGrid, chartMode, diffRecords, getCreatureOption().singular);
+    histograms = createChartManager(
+      assignmentType,
+      chartsGrid,
+      chartMode,
+      diffRecords,
+      getCreatureOption().singular,
+      chartNotes
+    );
     chartCaption.textContent = getChartLabels(assignmentType, newMazeEachRun).caption;
     chartCaption.style.display = "block";
   }
@@ -332,8 +341,10 @@ function setupCharts(assignmentType, newMazeEachRun) {
 function refreshSummary(assignmentType, newMazeEachRun) {
   let text = summarizeResults(finishedRecords, assignmentType, newMazeEachRun);
   if (chartMode !== "multi") {
-    summaryEl.innerHTML = text;
+    // The P-value tab's chart already shows the difference, so it skips the summary sentence.
+    summaryEl.innerHTML = chartMode === "run" ? text : "";
     pvalueEl.innerHTML = describeSignificance(finishedRecords, assignmentType);
+    if (chartMode === "pvalue") histograms.update(computeTests(finishedRecords, assignmentType));
   }
   if (chartMode === "multi") {
     pvalueEl.innerHTML = "";

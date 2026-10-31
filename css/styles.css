@@ -453,8 +453,48 @@ fieldset.field {
 
 .chart-box h3 {
   margin: 0 0 0.25rem;
+  /* Keeps longer titles clear of the ⓘ icon in the corner. */
+  padding: 0 1.5rem;
   font-size: 0.95rem;
   text-align: center;
+}
+
+/* A collapsed "how is this calculated?" note under a chart. */
+.chart-note {
+  margin-top: 0.5rem;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.chart-note summary {
+  cursor: pointer;
+  width: fit-content;
+}
+
+.chart-note p {
+  margin: 0.35rem 0 0;
+  line-height: 1.45;
+}
+
+.chart-note h4 {
+  margin: 0.75rem 0 0;
+  font-size: 0.82rem;
+  color: var(--text);
+}
+
+/* Block mode: which block the equations below belong to. */
+.chart-note .chart-note-label {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.chart-note math {
+  margin: 0.45rem 0;
+  font-size: 1.05rem;
+  color: var(--text);
+  /* Wide formulas scroll sideways instead of overflowing the panel. */
+  overflow-x: auto;
+  overflow-y: hidden;
 }
 
 .chart-box canvas {
@@ -508,6 +548,8 @@ fieldset.field {
   top: 130%;
   right: 0;
   min-width: 130px;
+  /* One stat per line, never wrapped mid-line. */
+  width: max-content;
   background: #1f2933;
   color: #fff;
   font-size: 0.75rem;
@@ -538,6 +580,10 @@ fieldset.field {
   border-top: 1px solid var(--border);
 }
 
+.summary:empty {
+  display: none;
+}
+
 .pvalue {
   margin: 0.5rem 0 0;
   padding: 0.6rem 0.75rem;
@@ -552,6 +598,14 @@ fieldset.field {
 
 .pvalue:empty {
   display: none;
+}
+
+.chart-empty {
+  padding: 2.5rem 1rem;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  color: var(--muted);
+  text-align: center;
 }
 
 .stronger {

@@ -85,9 +85,21 @@ export function tDistributionPValue(t, df) {
   return Math.max(0, Math.min(1, regularizedIncompleteBeta(df / 2, 0.5, x)));
 }
 
+/** Probability density of Student's t-distribution at x */
+export function tDensity(x, df) {
+  return Math.exp(
+    logGamma((df + 1) / 2) -
+      logGamma(df / 2) -
+      0.5 * Math.log(df * Math.PI) -
+      ((df + 1) / 2) * Math.log(1 + (x * x) / df)
+  );
+}
+
 /**
  * Welch's two-sample t-test (unequal variances assumed — the standard choice
  * when there's no reason to assume the two groups have equal spread).
+ * Like pairedTTest, returns { t, df, p, diff, se }: diff is the observed
+ * difference in means and se its standard error, so t = diff / se.
  */
 export function welchTTest(sampleA, sampleB) {
   const nA = sampleA.length;
@@ -101,16 +113,17 @@ export function welchTTest(sampleA, sampleB) {
   const seSquared = varA / nA + varB / nB;
 
   if (seSquared === 0) {
-    return { t: 0, df: nA + nB - 2, p: 1 };
+    return { t: 0, df: nA + nB - 2, p: 1, diff: meanA - meanB, se: 0 };
   }
 
-  const t = (meanA - meanB) / Math.sqrt(seSquared);
+  const se = Math.sqrt(seSquared);
+  const t = (meanA - meanB) / se;
   const df =
     seSquared ** 2 /
     ((varA / nA) ** 2 / (nA - 1) + (varB / nB) ** 2 / (nB - 1));
   const p = tDistributionPValue(t, df);
 
-  return { t, df, p };
+  return { t, df, p, diff: meanA - meanB, se };
 }
 
 /** Paired (one-sample) t-test of the differences against 0 */
@@ -122,12 +135,13 @@ export function pairedTTest(differences) {
   const sd = stdDev(differences);
 
   if (sd === 0) {
-    return { t: 0, df: n - 1, p: m === 0 ? 1 : 0 };
+    return { t: 0, df: n - 1, p: m === 0 ? 1 : 0, diff: m, se: 0 };
   }
 
-  const t = m / (sd / Math.sqrt(n));
+  const se = sd / Math.sqrt(n);
+  const t = m / se;
   const df = n - 1;
   const p = tDistributionPValue(t, df);
 
-  return { t, df, p };
+  return { t, df, p, diff: m, se };
 }

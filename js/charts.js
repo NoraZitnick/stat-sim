@@ -9,14 +9,60 @@
  *     (control time − drug time), since that's the number that actually
  *     matters for this design.
  *
+ *   - HistogramRunHistory: multi-run — a histogram of each recorded run's
+ *     difference.
+ *   - PValueChart: the P-value tab — the differences chance alone would
+ *     produce if the drug did nothing, with the tails beyond this run's
+ *     difference shaded; their area is the p-value.
+ *
  * Every chart also gets a small hoverable "i" icon showing that chart's own
  * sample size, mean, and standard deviation — the numbers a student would
  * otherwise have to compute by hand from the bars.
  */
 
-import { CONFIG, getCreatureBlocks, GROUP_COLORS, mean, round1, round2, stdDev } from "./config.js";
+import { CONFIG, formatPValue, getCreatureBlocks, GROUP_COLORS, mean, round1, round2, stdDev } from "./config.js";
+import { tDensity } from "./inference.js";
 
 let max_count = 0;
+
+const LABEL_LINE_HEIGHT = 14;
+const LABEL_PADDING_Y = 3;
+
+/** Pixel height of a label box holding this many lines. */
+function labelBoxHeight(lineCount) {
+  return lineCount * LABEL_LINE_HEIGHT + 2 * LABEL_PADDING_Y;
+}
+
+/**
+ * The boxed label style shared by every chart's markers. One box (text may
+ * hold several lines, split on "\n") drawn beside anchorX on the preferred
+ * side, flipping sides if it wouldn't fit, and always kept inside the chart area.
+ */
+function drawLabelBox(ctx, text, anchorX, top, chartArea, preferredSide = "right") {
+  const lines = text.split("\n");
+  ctx.font = "600 11px sans-serif";
+  const width = Math.max(...lines.map((line) => ctx.measureText(line).width)) + 10;
+  const height = labelBoxHeight(lines.length);
+
+  const rightOfAnchor = anchorX + 5;
+  const leftOfAnchor = anchorX - width - 5;
+  const fitsRight = rightOfAnchor + width <= chartArea.right;
+  const fitsLeft = leftOfAnchor >= chartArea.left;
+  const placeRight = preferredSide === "right" ? fitsRight : !fitsLeft;
+  const left = Math.max(chartArea.left, Math.min(chartArea.right - width, placeRight ? rightOfAnchor : leftOfAnchor));
+
+  ctx.fillStyle = "rgba(255, 255, 255, 0.96)";
+  ctx.strokeStyle = "#111827";
+  ctx.lineWidth = 1;
+  ctx.fillRect(left, top, width, height);
+  ctx.strokeRect(left, top, width, height);
+  ctx.fillStyle = "#111827";
+  ctx.textAlign = "left";
+  ctx.textBaseline = "middle";
+  lines.forEach((line, i) => {
+    ctx.fillText(line, left + 5, top + LABEL_PADDING_Y + LABEL_LINE_HEIGHT * (i + 0.5));
+  });
+}
 
 const meanMarkerPlugin = {
   id: "meanMarker",
@@ -39,22 +85,7 @@ const meanMarkerPlugin = {
     ctx.lineTo(xPosition, bottom);
     ctx.stroke();
     ctx.setLineDash([]);
-    ctx.font = "600 11px sans-serif";
-    const label = `Mean: ${round2(meanValue)}s`;
-    const labelWidth = ctx.measureText(label).width + 10;
-    const labelHeight = 20;
-    const labelLeft = Math.max(left, Math.min(right - labelWidth, xPosition + 5 + labelWidth <= right ? xPosition + 5 : xPosition - labelWidth - 5));
-    const labelTop = top + 3;
-
-    ctx.fillStyle = "rgba(255, 255, 255, 0.96)";
-    ctx.strokeStyle = "#111827";
-    ctx.lineWidth = 1;
-    ctx.fillRect(labelLeft, labelTop, labelWidth, labelHeight);
-    ctx.strokeRect(labelLeft, labelTop, labelWidth, labelHeight);
-    ctx.fillStyle = "#111827";
-    ctx.textAlign = "left";
-    ctx.textBaseline = "middle";
-    ctx.fillText(label, labelLeft + 5, labelTop + labelHeight / 2);
+    drawLabelBox(ctx, `Mean: ${round2(meanValue)}s`, xPosition, top + 3, chart.chartArea);
     ctx.restore();
   },
 };
@@ -949,8 +980,380 @@ export class HistogramRunHistory {
 
 }
 
-export function createChartManager(assignmentType, container, mode = "run", diffRecords = [[], [], []], creature = "mouse") {
+/** The x-axis widens to fit this run's result, but never past ±this many standard errors. */
+const PVALUE_MAX_AXIS_T = 8;
+const PVALUE_CURVE_POINTS = 200;
+const PVALUE_SHADE_COLOR = "#2563eb";
+
+/**
+ * One tail's area (p / 2), with a 4th decimal only when 3 would make the two
+ * halves visibly not add up to p (e.g. 0.026 + 0.026 ≠ 0.051).
+ */
+function formatHalfP(p) {
+  if (p < 0.001) return "< 0.001";
+  const half = Math.round((p / 2) * 1000) / 1000;
+  return Math.round(half * 2000) === Math.round(p * 1000)
+    ? String(half)
+    : String(Math.round((p / 2) * 10000) / 10000);
+}
+
+/** A round axis bound and tick step (1, 2 or 5 × a power of ten) covering ±limit in about four ticks per side. */
+function niceSymmetricAxis(limit) {
+  const rawStep = limit / 4;
+  const magnitude = 10 ** Math.floor(Math.log10(rawStep));
+  const step = [1, 2, 5, 10].find((m) => m * magnitude >= rawStep) * magnitude;
+  return { axisMax: Math.ceil(limit / step - 1e-9) * step, step };
+}
+
+/**
+ * The chance-only curve and its two shaded tails, in seconds. Points are
+ * sampled in t-units, then scaled by secondsPerT (one standard error). Each
+ * tail is its own gap-free dataset with a fixed point count: gaps (nulls)
+ * inside one filled dataset, or a point count that changes between updates,
+ * can leave Chart.js drawing the fill as a straight-edged wedge.
+ */
+function pValueCurveData(t, df, secondsPerT) {
+  const absT = Math.abs(t);
+  const { axisMax, step } = niceSymmetricAxis(Math.max(4, Math.min(absT + 1, PVALUE_MAX_AXIS_T)) * secondsPerT);
+  const limitT = axisMax / secondsPerT;
+  const sample = (fromT, toT) =>
+    Array.from({ length: PVALUE_CURVE_POINTS + 1 }, (_, i) => {
+      const x = fromT + ((toT - fromT) * i) / PVALUE_CURVE_POINTS;
+      return { x: x * secondsPerT, y: tDensity(x, df) };
+    });
+  const hasTails = absT < limitT;
+
+  return {
+    curve: sample(-limitT, limitT),
+    lowerTail: hasTails ? sample(-limitT, -absT) : [],
+    upperTail: hasTails ? sample(absT, limitT) : [],
+    axisMax,
+    step,
+  };
+}
+
+/**
+ * This run's dashed line and its mirror image. The run's line is labeled with
+ * its difference and, on the next line of the same box, the total P (with the
+ * block name, if any). Each tail is labeled with its area.
+ */
+const pValueMarkerPlugin = {
+  id: "pValueMarker",
+  afterDatasetsDraw(chart) {
+    const result = chart.$pValueResult;
+    if (!result) return;
+
+    const { diff, p, pLabel, lineDensity } = result;
+    const area = chart.chartArea;
+    const { left, right, top, bottom } = area;
+    const { ctx } = chart;
+    const toPixel = (value) => Math.max(left, Math.min(right, chart.scales.x.getPixelForValue(value)));
+
+    ctx.save();
+    ctx.setLineDash([5, 4]);
+    ctx.lineWidth = 2;
+    for (const [value, color] of [[-diff, "#94a3b8"], [diff, "#111827"]]) {
+      ctx.strokeStyle = color;
+      ctx.beginPath();
+      ctx.moveTo(toPixel(value), top);
+      ctx.lineTo(toPixel(value), bottom);
+      ctx.stroke();
+    }
+    ctx.setLineDash([]);
+
+    // Labels point outward, away from the center: the result's label and its
+    // tail's label on the result's side, the mirror tail's label on the other.
+    const outward = diff >= 0 ? "right" : "left";
+    const inward = diff >= 0 ? "left" : "right";
+    const resultLabelTop = top + 3;
+    drawLabelBox(ctx, `${round2(diff)}s\n${pLabel}`, toPixel(diff), resultLabelTop, area, outward);
+
+    // A tall tail (high P) has room for its label inside the shading, well
+    // down from the labels above; a thin tail's label sits just above the
+    // curve instead, so it doesn't hide the shading it describes.
+    const areaLabelHeight = labelBoxHeight(1);
+    const curveTopAtLines = chart.scales.y.getPixelForValue(lineDensity);
+    const roomUnderCurve = bottom - curveTopAtLines;
+    const preferredTop = roomUnderCurve > 3 * areaLabelHeight
+      ? curveTopAtLines + 0.6 * (roomUnderCurve - areaLabelHeight)
+      : curveTopAtLines - areaLabelHeight - 6;
+    const tailLabelTop = Math.max(
+      resultLabelTop + labelBoxHeight(2) + 5,
+      Math.min(bottom - areaLabelHeight - 4, preferredTop)
+    );
+    const areaLabel = `Area: ${formatHalfP(p)}`;
+    drawLabelBox(ctx, areaLabel, toPixel(diff), tailLabelTop, area, outward);
+    drawLabelBox(ctx, areaLabel, toPixel(-diff), tailLabelTop, area, inward);
+    ctx.restore();
+  },
+};
+
+function pValueDataset(color, fillAlpha, order) {
+  return {
+    data: [],
+    borderColor: color,
+    backgroundColor: `${color}${fillAlpha}`,
+    borderWidth: 1.5,
+    pointRadius: 0,
+    fill: "origin",
+    order,
+  };
+}
+
+function buildPValueChart(canvas) {
+  return new Chart(canvas, {
+    type: "line",
+    data: {
+      datasets: [
+        pValueDataset("#64748b", "1a", 2),
+        pValueDataset(PVALUE_SHADE_COLOR, "73", 1),
+        pValueDataset(PVALUE_SHADE_COLOR, "73", 1),
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: { duration: 200 },
+      parsing: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: { enabled: false },
+      },
+      scales: {
+        x: {
+          type: "linear",
+          title: { display: true, text: "Difference: control − drug (s)" },
+          ticks: { maxRotation: 0, font: { size: 9 }, callback: (value) => round2(value) },
+          grid: { display: false },
+        },
+        y: {
+          min: 0,
+          ticks: { display: false },
+          grid: { display: false },
+        },
+      },
+    },
+    plugins: [pValueMarkerPlugin],
+  });
+}
+
+/**
+ * Info-icon text: what an intro stats write-up of the test reports — the
+ * test's name, each sample's n / x̄ / s, then SE, t, df and P. The difference
+ * itself is left out; the chart's title and dashed line already show it.
+ */
+function formatTestStats({ groups, se, df, p }, t) {
+  const seconds = (value) => `${round2(value * CONFIG.animTimeScale)}s`;
+  const lines = groups.pairs
+    ? ["Paired t-test", `Pairs: n = ${groups.pairs.n}, s = ${seconds(groups.pairs.sd)}`]
+    : [
+      "Two-sample t-test",
+      `Drug: n = ${groups.drug.n}, x̄ = ${seconds(groups.drug.mean)}, s = ${seconds(groups.drug.sd)}`,
+      `Control: n = ${groups.control.n}, x̄ = ${seconds(groups.control.mean)}, s = ${seconds(groups.control.sd)}`,
+    ];
+  return [...lines, `SE = ${seconds(se)}`, `t = ${round2(t)}`, `df = ${round1(df)}`, formatPValue(p)].join("\n");
+}
+
+// Small MathML builders for the note's equations (rendered natively by the browser).
+const mi = (name) => `<mi>${name}</mi>`;
+const mn = (value) => `<mn>${value}</mn>`;
+const mo = (symbol) => `<mo>${symbol}</mo>`;
+const mrow = (...parts) => `<mrow>${parts.join("")}</mrow>`;
+const mfrac = (top, bottom) => `<mfrac>${top}${bottom}</mfrac>`;
+const msqrt = (...parts) => `<msqrt>${parts.join("")}</msqrt>`;
+const msup = (base, power) => `<msup>${base}${power}</msup>`;
+const squared = (base) => msup(base, mn(2));
+/** A symbol with a word subscript, like s with "drug" below it. */
+const labeled = (symbol, group) => `<msub>${mi(symbol)}<mtext>${group}</mtext></msub>`;
+/** The same, squared, with the 2 stacked over the subscript. */
+const labeledSquared = (symbol, group) => `<msubsup>${mi(symbol)}<mtext>${group}</mtext>${mn(2)}</msubsup>`;
+const mathBlock = (...parts) => `<math display="block">${mrow(...parts)}</math>`;
+
+/** SE and df worked out symbolically, then with this run's numbers (seconds). */
+function testEquations({ groups, se, df }) {
+  const seconds = (value) => mn(round2(value * CONFIG.animTimeScale));
+  const result = (value, unit = "") => mrow(mo("="), mn(value), unit ? `<mtext>&nbsp;${unit}</mtext>` : "");
+
+  if (groups.pairs) {
+    const { n, sd } = groups.pairs;
+    return {
+      se: mathBlock(mi("SE"), mo("="), mfrac(mi("s"), msqrt(mi("n"))), mo("="),
+        mfrac(seconds(sd), msqrt(mn(n))), result(round2(se * CONFIG.animTimeScale), "s")),
+      df: mathBlock(mi("df"), mo("="), mi("n"), mo("−"), mn(1), mo("="), mn(n), mo("−"), mn(1), result(round1(df))),
+    };
+  }
+
+  const { drug, control } = groups;
+  const term = (group) => mfrac(labeledSquared("s", group), labeled("n", group));
+  const numberTerm = ({ sd, n }) => mfrac(squared(seconds(sd)), mn(n));
+  return {
+    se: mathBlock(mi("SE"), mo("="), msqrt(term("drug"), mo("+"), term("control"))) +
+      mathBlock(mo("="), msqrt(numberTerm(drug), mo("+"), numberTerm(control)), result(round2(se * CONFIG.animTimeScale), "s")),
+    // Welch–Satterthwaite: the numerator (s²/n + s²/n)² is just SE⁴.
+    df: mathBlock(mi("df"), mo("="), mfrac(
+      msup(mi("SE"), mn(4)),
+      mrow(
+        mfrac(squared(mrow(mo("("), term("drug"), mo(")"))), mrow(labeled("n", "drug"), mo("−"), mn(1))),
+        mo("+"),
+        mfrac(squared(mrow(mo("("), term("control"), mo(")"))), mrow(labeled("n", "control"), mo("−"), mn(1)))
+      )
+    ), result(round1(df))),
+  };
+}
+
+/** The fold-out note's body: what SE and df are, then each test's equations. */
+function curveNoteHtml(tests, blockNames) {
+  const paired = Boolean(tests[0].groups.pairs);
+  const equations = tests.map((test) => ({
+    heading: test.block === null ? "" : `<p class="chart-note-label">${blockNames[test.block]}</p>`,
+    ...testEquations(test),
+  }));
+  const seEquations = equations.map(({ heading, se }) => heading + se).join("");
+  const dfEquations = equations.map(({ heading, df }) => heading + df).join("");
+
+  return (
+    "<p>The curve shows the differences between the group averages that chance alone would produce if the " +
+    "drug did nothing, so it's centered at 0.</p>" +
+
+    "<h4>Standard error (SE): the curve's spread</h4>" +
+    "<p>If the drug did nothing and you re-ran this experiment many times, the difference would bounce " +
+    "around 0 from run to run. The SE is the typical size of that bounce. It comes from how spread out the " +
+    `times are (${paired ? "s, the standard deviation of the paired differences" : "s, each group's standard deviation"}) ` +
+    "and how many there are (n): more spread makes the SE bigger, and more data makes it smaller.</p>" +
+    seEquations +
+
+    "<h4>Degrees of freedom (df): the curve's shape</h4>" +
+    "<p>Since s is only estimated from this sample, the t-curve has fatter tails than a normal bell curve " +
+    "to allow for that extra uncertainty. The df measures how much data the estimate rests on: the more df, " +
+    "the closer the curve gets to a normal curve. " +
+    (paired
+      ? "For matched pairs it's the number of pairs minus 1.</p>"
+      : "For two separate groups it comes from Welch's formula (calculators do this for you), and always " +
+        "lands between the smaller group's n − 1 and n<sub>drug</sub> + n<sub>control</sub> − 2.</p>") +
+    dfEquations +
+
+    "<p>The dark dashed line is this run's difference, the light one is the same difference in the other " +
+    "direction, and the shaded areas beyond them add up to P.</p>"
+  );
+}
+
+/**
+ * P-value tab: one chart per test (one per block for block assignment), plus
+ * a single fold-out "How is this curve drawn?" note placed in noteContainer
+ * (outside the chart grid, so it can sit below the p-value text). It draws
+ * from finished t-test results (see update) rather than individual times, so
+ * the add* methods the other chart managers use are no-ops.
+ */
+export class PValueChart {
+  constructor(container, creature = "mouse", noteContainer = null) {
+    this.mode = "pvalue";
+    this.container = container;
+    this.blockNames = getCreatureBlocks(creature).map((entry) => entry.name);
+    this.panels = [];
+    this.panelKey = null;
+
+    this.note = document.createElement("details");
+    this.note.className = "chart-note";
+    this.note.innerHTML = "<summary>How is this curve drawn?</summary><div></div>";
+    this.noteBody = this.note.querySelector("div");
+    noteContainer?.replaceChildren(this.note);
+
+    this.showEmpty();
+  }
+
+  setTitles() {}
+  addResult() {}
+  addResultsBatch() {}
+  addDifference() {}
+  addDifferencesBatch() {}
+
+  /** tests: computeTests() results — empty until each group has enough data. */
+  update(tests) {
+    if (tests.length === 0) {
+      this.showEmpty();
+      return;
+    }
+
+    const panelKey = tests.map((test) => test.block).join("|");
+    if (panelKey !== this.panelKey) this.buildPanels(tests, panelKey);
+
+    this.note.hidden = false;
+    this.noteBody.innerHTML = curveNoteHtml(tests, this.blockNames);
+
+    tests.forEach((test, i) => {
+      const { chart, title } = this.panels[i];
+      // One standard error in seconds. A zero SE (every time identical) has nothing to scale by.
+      const secondsPerT = test.se > 0 ? test.se * CONFIG.animTimeScale : 1;
+      const t = test.se > 0 ? test.drugFasterDiff / test.se : 0;
+      const diff = test.drugFasterDiff * CONFIG.animTimeScale;
+      const { curve, lowerTail, upperTail, axisMax, step } = pValueCurveData(t, test.df, secondsPerT);
+
+      chart.data.datasets[0].data = curve;
+      chart.data.datasets[1].data = lowerTail;
+      chart.data.datasets[2].data = upperTail;
+      Object.assign(chart.options.scales.x, { min: -axisMax, max: axisMax });
+      chart.options.scales.x.ticks.stepSize = step;
+      const pLabel = test.block === null
+        ? formatPValue(test.p)
+        : `${this.blockNames[test.block]}: ${formatPValue(test.p)}`;
+      chart.$pValueResult = { diff, p: test.p, pLabel, lineDensity: tDensity(t, test.df) };
+      title.textContent = `Probability of a ${round2(Math.abs(diff))}s Difference`;
+      setInfoTooltip(chart.canvas.closest(".chart-box"), formatTestStats(test, t));
+      updateChart(chart);
+    });
+  }
+
+  buildPanels(tests, panelKey) {
+    this.destroyCharts();
+    this.panelKey = panelKey;
+    this.container.className = "charts-grid charts-grid--1";
+    this.container.innerHTML = tests.map((_, i) => `
+      <div class="chart-box chart-box--wide">
+        ${infoIconMarkup()}
+        <h3 id="chart-pvalue-title-${i}"></h3>
+        <canvas id="chart-pvalue-${i}"></canvas>
+      </div>
+    `).join("");
+    this.panels = tests.map((_, i) => ({
+      chart: buildPValueChart(this.container.querySelector(`#chart-pvalue-${i}`)),
+      title: this.container.querySelector(`#chart-pvalue-title-${i}`),
+    }));
+  }
+
+  showEmpty() {
+    this.destroyCharts();
+    this.note.hidden = true;
+    this.panelKey = null;
+    this.container.className = "charts-grid charts-grid--1";
+    this.container.innerHTML = '<div class="chart-box chart-empty">No results yet.</div>';
+  }
+
+  reset() {
+    this.showEmpty();
+  }
+
+  destroyCharts() {
+    this.panels.forEach(({ chart }) => chart.destroy());
+    this.panels = [];
+  }
+
+  destroy() {
+    this.destroyCharts();
+    this.note.remove();
+  }
+}
+
+/** noteContainer: where the P-value tab puts its fold-out note; other tabs ignore it. */
+export function createChartManager(
+  assignmentType,
+  container,
+  mode = "run",
+  diffRecords = [[], [], []],
+  creature = "mouse",
+  noteContainer = null
+) {
   if (mode === "multi") return new HistogramRunHistory(container, diffRecords, assignmentType, creature);
+  if (mode === "pvalue") return new PValueChart(container, creature, noteContainer);
   const colors = GROUP_COLORS[creature] ?? GROUP_COLORS.mouse;
   if (assignmentType === "block") return new HistogramBlockStacked(container, colors, creature);
   if (assignmentType === "matched") return new HistogramDifference(container);
