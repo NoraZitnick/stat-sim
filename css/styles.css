@@ -489,9 +489,12 @@ fieldset.field {
 }
 
 .chart-note math {
+  color: var(--text);
+}
+
+.chart-note math[display="block"] {
   margin: 0.45rem 0;
   font-size: 1.05rem;
-  color: var(--text);
   /* Wide formulas scroll sideways instead of overflowing the panel. */
   overflow-x: auto;
   overflow-y: hidden;

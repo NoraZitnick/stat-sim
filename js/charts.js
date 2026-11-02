@@ -985,18 +985,6 @@ const PVALUE_MAX_AXIS_T = 8;
 const PVALUE_CURVE_POINTS = 200;
 const PVALUE_SHADE_COLOR = "#2563eb";
 
-/**
- * One tail's area (p / 2), with a 4th decimal only when 3 would make the two
- * halves visibly not add up to p (e.g. 0.026 + 0.026 ≠ 0.051).
- */
-function formatHalfP(p) {
-  if (p < 0.001) return "< 0.001";
-  const half = Math.round((p / 2) * 1000) / 1000;
-  return Math.round(half * 2000) === Math.round(p * 1000)
-    ? String(half)
-    : String(Math.round((p / 2) * 10000) / 10000);
-}
-
 /** A round axis bound and tick step (1, 2 or 5 × a power of ten) covering ±limit in about four ticks per side. */
 function niceSymmetricAxis(limit) {
   const rawStep = limit / 4;
@@ -1035,7 +1023,7 @@ function pValueCurveData(t, df, secondsPerT) {
 /**
  * This run's dashed line and its mirror image. The run's line is labeled with
  * its difference and, on the next line of the same box, the total P (with the
- * block name, if any). Each tail is labeled with its area.
+ * block name, if any).
  */
 const pValueMarkerPlugin = {
   id: "pValueMarker",
@@ -1043,7 +1031,7 @@ const pValueMarkerPlugin = {
     const result = chart.$pValueResult;
     if (!result) return;
 
-    const { diff, p, pLabel, lineDensity } = result;
+    const { diff, pLabel } = result;
     const area = chart.chartArea;
     const { left, right, top, bottom } = area;
     const { ctx } = chart;
@@ -1061,29 +1049,8 @@ const pValueMarkerPlugin = {
     }
     ctx.setLineDash([]);
 
-    // Labels point outward, away from the center: the result's label and its
-    // tail's label on the result's side, the mirror tail's label on the other.
-    const outward = diff >= 0 ? "right" : "left";
-    const inward = diff >= 0 ? "left" : "right";
-    const resultLabelTop = top + 3;
-    drawLabelBox(ctx, `${round2(diff)}s\n${pLabel}`, toPixel(diff), resultLabelTop, area, outward);
-
-    // A tall tail (high P) has room for its label inside the shading, well
-    // down from the labels above; a thin tail's label sits just above the
-    // curve instead, so it doesn't hide the shading it describes.
-    const areaLabelHeight = labelBoxHeight(1);
-    const curveTopAtLines = chart.scales.y.getPixelForValue(lineDensity);
-    const roomUnderCurve = bottom - curveTopAtLines;
-    const preferredTop = roomUnderCurve > 3 * areaLabelHeight
-      ? curveTopAtLines + 0.6 * (roomUnderCurve - areaLabelHeight)
-      : curveTopAtLines - areaLabelHeight - 6;
-    const tailLabelTop = Math.max(
-      resultLabelTop + labelBoxHeight(2) + 5,
-      Math.min(bottom - areaLabelHeight - 4, preferredTop)
-    );
-    const areaLabel = `Area: ${formatHalfP(p)}`;
-    drawLabelBox(ctx, areaLabel, toPixel(diff), tailLabelTop, area, outward);
-    drawLabelBox(ctx, areaLabel, toPixel(-diff), tailLabelTop, area, inward);
+    // The label points outward, away from the center.
+    drawLabelBox(ctx, `${round2(diff)}s\n${pLabel}`, toPixel(diff), top + 3, area, diff >= 0 ? "right" : "left");
     ctx.restore();
   },
 };
@@ -1156,84 +1123,121 @@ function formatTestStats({ groups, se, df, p }, t) {
 
 // Small MathML builders for the note's equations (rendered natively by the browser).
 const mi = (name) => `<mi>${name}</mi>`;
-const mn = (value) => `<mn>${value}</mn>`;
+/** A number, with a true minus sign (−) rather than a hyphen for negatives. */
+const mn = (value) => `<mn>${String(value).replace("-", "−")}</mn>`;
 const mo = (symbol) => `<mo>${symbol}</mo>`;
 const mrow = (...parts) => `<mrow>${parts.join("")}</mrow>`;
 const mfrac = (top, bottom) => `<mfrac>${top}${bottom}</mfrac>`;
 const msqrt = (...parts) => `<msqrt>${parts.join("")}</msqrt>`;
 const msup = (base, power) => `<msup>${base}${power}</msup>`;
 const squared = (base) => msup(base, mn(2));
-/** A symbol with a word subscript, like s with "drug" below it. */
-const labeled = (symbol, group) => `<msub>${mi(symbol)}<mtext>${group}</mtext></msub>`;
-/** The same, squared, with the 2 stacked over the subscript. */
-const labeledSquared = (symbol, group) => `<msubsup>${mi(symbol)}<mtext>${group}</mtext>${mn(2)}</msubsup>`;
+const parens = (...parts) => mrow(mo("("), ...parts, mo(")"));
+/** A base with a word subscript, like s with "drug" below it. */
+const withSubscript = (base, label) => `<msub>${base}<mtext>${label}</mtext></msub>`;
+const labeled = (symbol, label) => withSubscript(mi(symbol), label);
+/** s², with the 2 stacked over the subscript. */
+const labeledSquared = (symbol, label) => `<msubsup>${mi(symbol)}<mtext>${label}</mtext>${mn(2)}</msubsup>`;
+/** x̄ (a sample mean) with a word subscript; the precomposed x̄ renders more reliably than an <mover> accent. */
+const xBar = (label) => withSubscript(mi("x̄"), label);
+const hypothesis = (index) => `<msub>${mi("H")}${index}</msub>`;
 const mathBlock = (...parts) => `<math display="block">${mrow(...parts)}</math>`;
+const mathInline = (...parts) => `<math>${mrow(...parts)}</math>`;
 
-/** SE and df worked out symbolically, then with this run's numbers (seconds). */
-function testEquations({ groups, se, df }) {
+/** The parameter the test is about: μ_control − μ_drug, or μ_d for matched pairs. */
+function parameter(paired) {
+  return paired ? labeled("μ", "d") : mrow(labeled("μ", "control"), mo("−"), labeled("μ", "drug"));
+}
+
+/** The statistic the curve is the sampling distribution of: x̄_control − x̄_drug, or x̄_d. */
+function statistic(paired) {
+  return paired ? xBar("d") : mrow(xBar("control"), mo("−"), xBar("drug"));
+}
+
+/** SE, df and t for one test: the formula, then this run's numbers (in seconds). */
+function testEquations({ groups, se, df, drugFasterDiff }) {
   const seconds = (value) => mn(round2(value * CONFIG.animTimeScale));
-  const result = (value, unit = "") => mrow(mo("="), mn(value), unit ? `<mtext>&nbsp;${unit}</mtext>` : "");
+  const equals = (value, unit = "") => mrow(mo("="), mn(value), unit ? `<mtext>&nbsp;${unit}</mtext>` : "");
+  const seSeconds = round2(se * CONFIG.animTimeScale);
+  const t = se > 0 ? drugFasterDiff / se : 0;
+  const paired = Boolean(groups.pairs);
+  const tEquation = mathBlock(
+    mi("t"), mo("="), mfrac(mrow(paired ? statistic(paired) : parens(statistic(paired)), mo("−"), mn(0)), mi("SE")),
+    mo("="), mfrac(mrow(seconds(drugFasterDiff), mo("−"), mn(0)), mn(seSeconds)),
+    equals(round2(t))
+  );
 
-  if (groups.pairs) {
+  if (paired) {
     const { n, sd } = groups.pairs;
     return {
-      se: mathBlock(mi("SE"), mo("="), mfrac(mi("s"), msqrt(mi("n"))), mo("="),
-        mfrac(seconds(sd), msqrt(mn(n))), result(round2(se * CONFIG.animTimeScale), "s")),
-      df: mathBlock(mi("df"), mo("="), mi("n"), mo("−"), mn(1), mo("="), mn(n), mo("−"), mn(1), result(round1(df))),
+      se: mathBlock(mi("SE"), mo("="), mfrac(labeled("s", "d"), msqrt(mi("n"))), mo("="),
+        mfrac(seconds(sd), msqrt(mn(n))), equals(seSeconds, "s")),
+      df: mathBlock(mi("df"), mo("="), mi("n"), mo("−"), mn(1), mo("="), mn(n), mo("−"), mn(1), equals(round1(df))),
+      t: tEquation,
     };
   }
 
   const { drug, control } = groups;
-  const term = (group) => mfrac(labeledSquared("s", group), labeled("n", group));
+  const term = (label) => mfrac(labeledSquared("s", label), labeled("n", label));
   const numberTerm = ({ sd, n }) => mfrac(squared(seconds(sd)), mn(n));
+  const welchTerm = (label) => mfrac(squared(parens(term(label))), mrow(labeled("n", label), mo("−"), mn(1)));
   return {
-    se: mathBlock(mi("SE"), mo("="), msqrt(term("drug"), mo("+"), term("control"))) +
-      mathBlock(mo("="), msqrt(numberTerm(drug), mo("+"), numberTerm(control)), result(round2(se * CONFIG.animTimeScale), "s")),
-    // Welch–Satterthwaite: the numerator (s²/n + s²/n)² is just SE⁴.
-    df: mathBlock(mi("df"), mo("="), mfrac(
-      msup(mi("SE"), mn(4)),
-      mrow(
-        mfrac(squared(mrow(mo("("), term("drug"), mo(")"))), mrow(labeled("n", "drug"), mo("−"), mn(1))),
-        mo("+"),
-        mfrac(squared(mrow(mo("("), term("control"), mo(")"))), mrow(labeled("n", "control"), mo("−"), mn(1)))
-      )
-    ), result(round1(df))),
+    se: mathBlock(mi("SE"), mo("="), msqrt(term("control"), mo("+"), term("drug"))) +
+      mathBlock(mo("="), msqrt(numberTerm(control), mo("+"), numberTerm(drug)), equals(seSeconds, "s")),
+    // Welch's df formula; its numerator (s²/n + s²/n)² is just SE⁴.
+    df: mathBlock(mi("df"), mo("="), mfrac(msup(mi("SE"), mn(4)), mrow(welchTerm("control"), mo("+"), welchTerm("drug"))),
+      equals(round1(df))),
+    t: tEquation,
   };
 }
 
-/** The fold-out note's body: what SE and df are, then each test's equations. */
+/**
+ * The fold-out note's body, in intro-stats terms: the null hypothesis and
+ * sampling distribution, then SE, df, the t statistic and the P-value, each
+ * with every test's equations (labeled by block in block mode).
+ */
 function curveNoteHtml(tests, blockNames) {
   const paired = Boolean(tests[0].groups.pairs);
   const equations = tests.map((test) => ({
-    heading: test.block === null ? "" : `<p class="chart-note-label">${blockNames[test.block]}</p>`,
+    label: test.block === null ? "" : `<p class="chart-note-label">${blockNames[test.block]}</p>`,
     ...testEquations(test),
   }));
-  const seEquations = equations.map(({ heading, se }) => heading + se).join("");
-  const dfEquations = equations.map(({ heading, df }) => heading + df).join("");
+  const allOf = (key) => equations.map((entry) => entry.label + entry[key]).join("");
+  const s = paired ? "the standard deviation of the paired differences (s<sub>d</sub>)" : "the sample standard deviations (s)";
+  const n = paired ? "the number of pairs (n)" : "the sample sizes (n)";
 
   return (
-    "<p>The curve shows the differences between the group averages that chance alone would produce if the " +
-    "drug did nothing, so it's centered at 0.</p>" +
+    `<p>This curve is the sampling distribution of ${mathInline(statistic(paired))}` +
+    (paired ? ", the mean of the paired differences (control − drug)," : "") +
+    " assuming the null hypothesis is true:</p>" +
+    mathBlock(hypothesis(mn(0)), mo(":"), parameter(paired), mo("="), mn(0)) +
+    "<p>In other words, if the drug has no effect, this shows how the difference would vary from sample to " +
+    "sample just by random chance. That's why it's centered at 0.</p>" +
 
     "<h4>Standard error (SE): the curve's spread</h4>" +
-    "<p>If the drug did nothing and you re-ran this experiment many times, the difference would bounce " +
-    "around 0 from run to run. The SE is the typical size of that bounce. It comes from how spread out the " +
-    `times are (${paired ? "s, the standard deviation of the paired differences" : "s, each group's standard deviation"}) ` +
-    "and how many there are (n): more spread makes the SE bigger, and more data makes it smaller.</p>" +
-    seEquations +
+    "<p>The SE is the standard deviation of the sampling distribution. We don't know the population " +
+    `standard deviations, so we estimate it from ${s} and ${n}. More variability makes the SE larger; ` +
+    "a larger sample makes it smaller.</p>" +
+    allOf("se") +
 
     "<h4>Degrees of freedom (df): the curve's shape</h4>" +
-    "<p>Since s is only estimated from this sample, the t-curve has fatter tails than a normal bell curve " +
-    "to allow for that extra uncertainty. The df measures how much data the estimate rests on: the more df, " +
-    "the closer the curve gets to a normal curve. " +
+    "<p>Because the SE uses sample standard deviations instead of the true population values, the curve is " +
+    "a t-distribution rather than a normal distribution. Its shape depends on df: with fewer df the tails " +
+    "are heavier, and as df increases the t-distribution gets closer to the standard normal curve. " +
     (paired
-      ? "For matched pairs it's the number of pairs minus 1.</p>"
-      : "For two separate groups it comes from Welch's formula (calculators do this for you), and always " +
-        "lands between the smaller group's n − 1 and n<sub>drug</sub> + n<sub>control</sub> − 2.</p>") +
-    dfEquations +
+      ? "For a paired t-test, df is the number of pairs minus 1.</p>"
+      : "For a two-sample t-test, technology finds df with the formula below. A conservative by-hand " +
+        "choice is the smaller of n<sub>control</sub> − 1 and n<sub>drug</sub> − 1.</p>") +
+    allOf("df") +
 
-    "<p>The dark dashed line is this run's difference, the light one is the same difference in the other " +
-    "direction, and the shaded areas beyond them add up to P.</p>"
+    "<h4>Test statistic (t) and P-value</h4>" +
+    "<p>The t statistic measures how many standard errors this run's difference is from 0, the value " +
+    "the null hypothesis claims:</p>" +
+    allOf("t") +
+    "<p>The P-value is the probability of getting a difference at least as extreme as this run's, " +
+    `assuming H<sub>0</sub> is true. Since the alternative is two-sided (${mathInline(
+      hypothesis(mi("a")), mo(":"), parameter(paired), mo("≠"), mn(0)
+    )}), extreme counts in either direction. On the graph, that's the total shaded area beyond the two ` +
+    "dashed lines: the dark line is this run's difference, and the light one is the same distance on the other side.</p>"
   );
 }
 
@@ -1296,7 +1300,7 @@ export class PValueChart {
       const pLabel = test.block === null
         ? formatPValue(test.p)
         : `${this.blockNames[test.block]}: ${formatPValue(test.p)}`;
-      chart.$pValueResult = { diff, p: test.p, pLabel, lineDensity: tDensity(t, test.df) };
+      chart.$pValueResult = { diff, pLabel };
       title.textContent = `Probability of a ${round2(Math.abs(diff))}s Difference`;
       setInfoTooltip(chart.canvas.closest(".chart-box"), formatTestStats(test, t));
       updateChart(chart);
